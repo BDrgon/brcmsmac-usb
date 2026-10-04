@@ -18,7 +18,9 @@ dssh() { ssh $SSH_OPTS "$DEV_SSH" "$@"; }
 MOD=brcmsmac_usb
 
 sync_repo() {
-	rsync -a -e "ssh $SSH_OPTS" --delete --exclude work/ --exclude config/local.env --exclude .git/ \
+	# by checksum, without preserving mtimes: changed files get the target's current time, so
+	# make rebuilds them even when this machine's clock is behind the target's
+	rsync -rlpD --checksum -e "ssh $SSH_OPTS" --delete --exclude work/ --exclude config/local.env --exclude .git/ \
 		--exclude build/ --exclude '__pycache__/' \
 		--exclude '*.ko' --exclude '*.o' --exclude '*.mod' --exclude '*.mod.c' --exclude '.*.cmd' \
 		--exclude Module.symvers --exclude modules.order --exclude .tmp_versions/ "$ROOT/" "$DEV_SSH:$DEV_WORKDIR/"
