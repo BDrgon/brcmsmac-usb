@@ -13,8 +13,8 @@ found it, and updates the status board below.
 |---|---|---|---|
 | 0 | Reconnaissance | ✅ done | firmware extracted, protocol identified, capture decoded |
 | 1 | Repo & toolchain | ✅ done (chunk 2 deferred to Phase 9, D8) | G1 |
-| 2 | Userspace reference driver (`rpcprobe`) | 🟡 2.1–2.3 done, **G2a passed**; 2.4–2.6 next | G2a RX ✅, G2b TX |
-| 3 | Kernel transport module | ⏳ | G3 |
+| 2 | Userspace reference driver (`rpcprobe`) | ✅ done (id 161 still unnamed) | G2a RX ✅, G2b TX ✅ |
+| 3 | Kernel transport module | ⏳ next | G3 |
 | 4 | brcmsmac fork + RPC stub layer | ⏳ | G4 |
 | 5 | RX path + monitor mode | ⏳ | G5 |
 | 6 | TX path + scan + open association | ⏳ | G6 |
@@ -24,6 +24,7 @@ found it, and updates the status board below.
 
 **Chunk log** (newest first; one line per chunk, with what changed and where the notes are):
 
+- 2026-10-04 · phase 2.4–2.6 · `tools/rpcprobe/tx.py` (d11txh/PLCP/probe builders, tx status parser; reproduce the vendor's captured probe, auth and assoc-request headers byte for byte) + `tx` CLI command + 11 unit tests (`tests/test_tx.py`). **G2b TX passed** on ch 6: 2 broadcast + 2 directed probes, all tx statuses back in 5–6 ms, both unicast probes ACKed, 8 probe responses to our MAC from 3 APs. TXFIFO layout corrected (6 arg words + len); DOTXSTATUS fields decoded (frameid/status/sequence, brcmsmac TX_STATUS_* bits). IDs: 157 = PHY_LDPC_SET (position in every bring-up), 153 = CCA_STATS_READ, 154 = ANTSEL_SET [I]; +1 rule confirmed only up to 142; 161 unnamed (returns 1). `tools/rpcids.py` overrides. One undervoltage event 2 s before the TX window, none during it; no hang. Notes in `docs/protocol.md` §5, §7.1, §7.4.
 - 2026-10-04 · phase 2.1–2.3 · `tools/rpcprobe` library (transport/agg, session, sync, async reader, XDR, rx parser, JSONL trace, replay engine, CLI) + 11 unit tests on sanitised fixtures (`tests/`); `tools/seqextract.py`, `tools/mkfixtures.py`. **Init replay** of the vendor sequence (279 calls through HW_UP → BMAC_INIT → UP_FINISH) completes on hardware: 45/51 sync replies byte-identical, 6 in documented volatile classes, async frames identical to the capture. **G2a RX passed** (23 BSSs on ch 1/6/11, 1884 frames all FCS-valid, RxChan = DS IE for 23/23). Notes in `docs/protocol.md` §6, §7.2, §8.
 - 2026-10-04 · phase 1 · git repo with local commits; tools promoted to `tools/` (neutral message-kind labels, `rpcids.py`, `usbrecover.py`); clean-room `docs/protocol.md`; `scripts/build.sh` (pi via Docker, native, x86) + `scripts/deploy.sh` verified with `driver/hello` on the Pi; recovery findings in `docs/recovery.md` (hard hang needs a physical replug on the Pi B+; firmware can also self-reboot). Chunk 2 (firmware extraction tool) **blocked**, awaiting a user decision.
 - 2026-10-04 · scaffolding · SPEC/PLAN written; repo skeleton, `.gitignore`, `config/local.env.example`.
@@ -191,6 +192,7 @@ LICENSE, `docs/decisions.md`, a sanitised-fixtures audit, and an x86_64 verifica
 | D7 | Local setup in `config/local.env` (gitignored) | Shareability | — |
 | D8 | **Firmware distribution deferred to Phase 9** (user decision 2026-10-04); development uses `work/` firmware | Doesn't block Phases 2–8; decide with the full picture at release | user decides earlier |
 | D9 | Userspace replay is **data-driven from private captures** (`seqextract` → `work/seq/`); only extractors and sanitised fixtures are committed | Keeps vendor-derived sequences private; the kernel driver must instead generate calls from brcmsmac logic (Phase 4) | — |
+| D10 | Userspace TX builders mirror the vendor's d11txh for CCK management frames; the kernel driver builds headers with brcmsmac's own `brcms_c_d11hdrs_mac80211()` and uses the userspace builders only as a test oracle | brcmsmac already produces this exact layout; one source of truth | the RPC path needs fields brcmsmac doesn't fill |
 
 ## Risks
 
@@ -198,10 +200,10 @@ LICENSE, `docs/decisions.md`, a sanitised-fixtures audit, and an x86_64 verifica
 |---|---|---|---|
 | brcmsmac `main.c` merged HIGH+LOW too deeply to split cleanly | high | high | Phase 4.2 split map before coding; fall back to porting staging `wlc_mac80211.c` HIGH paths where needed |
 | Unknown/unsupported RPCs or argument formats assert the firmware | medium | medium | Phase 2 replay-first; one change at a time; replug/USB reset recovery |
-| RPC ID mapping drift beyond ID 152 | medium | medium | experiments in Phase 2.6; more captures |
+| RPC ID mapping drift above ID 142 | **observed** (shift grows to +3/+4; id 161 new) | medium | `tools/rpcids.py` overrides by behaviour; any stub for an id > 142 needs capture evidence first |
 | Key-install semantics wrong (WPA2) | medium | high | capture-based PTK verification before Phase 7 |
 | Pi 1 CPU too slow (RPC per frame) | medium | low | throughput isn't a goal; x86 box for dev speed |
-| Pi PSU undervoltage with radio active | **observed** (dmesg undervoltage events during Phase 2 RX sessions and at plug-in) | medium | monitor `get_throttled`; powered hub; better PSU |
+| Pi PSU undervoltage with radio active | **observed** (Phase 2 RX and TX sessions; plug-in; `get_throttled` 0x50005 right after a TX session on an unpowered USB-C hub port) | medium | log `get_throttled` + undervoltage count around every hardware session; label coinciding failures POWER-SUSPECT; powered hub or ≥2.5 A supply before soak tests (Phase 8) |
 | Captured blocks encode vendor *state machine* context (e.g. end-of-scan clears beacon-promisc) | medium | medium | treat captured blocks as references, not recipes; Phase 4 drives calls from brcmsmac state |
 | Hidden firmware expectations (watchdogs, keepalives) | medium | medium | look for periodic RPCs in the idle portion of the capture; replicate them |
 | Legal (firmware/RE) | low | high | SPEC §6 policy; users supply vendor files |

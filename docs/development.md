@@ -49,7 +49,19 @@ sudo python3 -m rpcprobe --fw FW.trx --trace T.jsonl probe     # download + iden
 sudo python3 -m rpcprobe --trace T.jsonl up --seq SEQ.jsonl    # replay init through UP_FINISH
 sudo python3 -m rpcprobe --trace T.jsonl rx --no-up --seq SEQ.jsonl \
      --chanblocks BLK.json --chan 6 --chan 1 --seconds 10     # retune + list beacons (receive only)
+sudo python3 -m rpcprobe --trace T.jsonl tx --seq SEQ.jsonl --chanblocks BLK.json --chan 6 \
+     --ssid-hex HEX --bcast 2 --directed 2 --out T.json        # transmit a few probe requests
 ```
+
+`tx` brings the dongle up (unless `--no-up`), tunes, listens `--listen` seconds, then sends `--bcast`
+wildcard broadcast probes and `--directed` unicast probes (CCK 1 Mbit/s, FIFO 3) to the strongest AP
+on the channel, or to the one whose SSID matches `--ssid-hex` (hex avoids shell quoting). It prints
+each frame's tx status (ACK, retries, suppression) and every management frame addressed to our MAC.
+Channels are limited to 1–11 and frame counts to 5 each; it isn't a flood tool.
+
+**Power:** a Pi 1 on a weak supply browns out when the radio is active. Before and after hardware
+sessions, record `vcgencmd get_throttled` and `dmesg | grep -ci undervoltage`, and don't trust a
+failure that coincides with an undervoltage event.
 
 `SEQ.jsonl` / `BLK.json` come from your own capture of the vendor driver (see `docs/protocol.md`):
 

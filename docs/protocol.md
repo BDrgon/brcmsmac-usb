@@ -133,7 +133,9 @@ against the enum [C]:
 - **ids ≤ 61:** identical to the 5.75 index
 - **ids ≥ 65:** 5.75 index **+ 1**
 - **ids 62–64:** never observed
-- **ids ≥ 153:** new or shifted further; mostly unknown
+- **ids ≥ 143:** the shift grows. Evidence: 153 behaves as 5.75 #150 (+3), 154 as #151 (+3), 157 as
+  #153 (+4); 161 has no 5.75 counterpart. So 5.100 inserted new ids somewhere in 143–152 and 155–156.
+  The +1 rule is confirmed up to id **142** only [C]; above that, use the table below [I]
 
 `tools/rpcids.py` implements this. The table lists the ids the vendor driver used. "args" means
 argument words after the id; counts are from one ~3-minute capture.
@@ -184,9 +186,12 @@ argument words after the id; counts are from one ~3-minute capture.
 | 133 / 134 | BMAC_HW_UP / SET_TXPWR_PERCENT | call | 1 / 1 | (—) / (100) | |
 | 135 / 136 | PHYCHAIN_ACTIVE_GET / BLINK_SYNC | | | | |
 | 140 / 141 / 142 | ACIM_NOISEM_RESET / INTERFER_SET / IFSCTL_EDCRS_SET | call | | | |
-| 153 | ? | sync | 470 | → 28 B | periodic statistics poll [?] |
-| 154 | (5.75 #153 PHY_LDPC_SET?) | call | 1 | (0) | [I] |
-| 157, 161 | ? | | 3, 1 | | [?] |
+| 135 | PHYCHAIN_ACTIVE_GET | sync | 14 | → `0x33` | tx/rx chain masks 3/3; same on our own calls [C] |
+| 142 | IFSCTL_EDCRS_SET | call | 2 | (0, 1) | at association; last id confirmed on the +1 rule [C] |
+| 153 | **CCA_STATS_READ** (5.75 #150, +3) | sync | 470 | → 28 B | polled before every retune. Words 0–1 constant; word 5 advances ≈ elapsed µs; words 2–4 accumulate a few % of it (channel-time counters) [I, strong] |
+| 154 | ANTSEL_SET (5.75 #151, +3) | call | 1 | (0) | sent once near the end of attach, where the staging HIGH code calls `antsel_set(antsel_avail)` [I] |
+| 157 | **PHY_LDPC_SET** (5.75 #153, +4) | call | 3 | (0) | once per interface bring-up, right after `UP_FINISH` → 4× WRITE_SHM (retry limits) → `TXANT_SET`: exactly brcmsmac `brcms_c_up()`'s order `wme_retries_write` → `stf_phy_txant_upd` → `ht_update_ldpc` [C by position, 3/3] |
+| 161 | ? (new in 5.100) | sync | 1 | → `1` | once during attach, between `PHYCHAIN_INIT` (87) and `HW_ETHERADDR` (56); no staging counterpart there. Returns 1 on our live firmware too [?] |
 
 **Dongle → host async calls** (bulk IN `0x82`, kind 1) [C by behaviour]:
 
@@ -231,20 +236,46 @@ Register reads after `BMAC_INIT` return the captured values where they aren't co
 
 ## 7. Data path
 
-### 7.1 TX: `BMAC_TXFIFO` (id 61, host → dongle) [C layout, I field names]
+### 7.1 TX: `BMAC_TXFIFO` (id 61, host → dongle) [C]
 
 ```
 u32 61
-u32 fifo        3 = probe requests during scans; 1 = data, auth, assoc (best effort); 0 seen once
-u32 commit      usually 1; 0 on some data frames (batched)
-u32 ?           0xffff
-u32 ?           1 or 2
-u32 ?           0 or 1
-u32 len         bytes that follow
-d11 TX header   112 B   (layout = brcmsmac `struct d11txh`, D11_TXH_LEN)
+u32 fifo        brcmsmac TX FIFO: 3 = TX_AC_VO / control (probe, auth, assoc), 1 = TX_AC_BE (data)
+u32 commit      1; 0 on some data frames (batched)
+u32 w2          0xffff [?]
+u32 w3          1 for management frames, 2 for data [?]
+u32 w4          0 for management frames, 1 for data [?]
+u32 w5          0 [?]
+u32 len         bytes that follow (excluding the padding)
+d11 TX header   112 B   brcmsmac `struct d11txh` (D11_TXH_LEN)
 PLCP            6 B
 802.11 frame    no FCS
+pad             zero bytes to a multiple of 4
 ```
+
+**d11txh for CCK management frames** (field names from brcmsmac `d11.h`, values as the vendor driver
+sends them; our builder `tools/rpcprobe/tx.py` reproduces captured probe-request, auth and
+assoc-request headers byte for byte) [C]:
+
+| Field (word) | Broadcast probe | Unicast mgmt (auth, directed probe) |
+|---|---|---|
+| MacTxControlLow (0x00) | `0x0018` HWSEQ \| STARTMSDU | `0x0019` + IMMEDACK |
+| MacFrameControl (0x02) | 802.11 FC (`0x0040`) | FC (`0x00b0` …) |
+| PhyTxControlWord (0x04) | `0x00c0` (PHY_TXC_ANT_0_1) | same |
+| PhyTxControlWord_1 / _Fbr (0x05/0x06) | `0x0002` | same |
+| MainRates (0x09) | CCK SIGNAL of the rate (`0x0a` = 1 Mbit/s) | same |
+| XtraFrameTypes (0x0a) | `0x0014 \| channel << 8` | same |
+| TxFrameRA (0x13–0x15) | addr1 (`ff:ff:…`) | addr1 |
+| FragPLCPFallback (0x1b–0x1d) | the PLCP, with bytes 4–5 = PSDU length incl. FCS | same |
+| FragDurFallback (0x1e) | 0 | Duration/ID (`0x013a` = SIFS + ACK at 1 Mbit/s, long preamble) |
+| TxFrameID (0x26) | `seq << 5 \| fifo` (brcmsmac TXFID_*) | same |
+| everything else | 0 | 0 |
+
+**PLCP (CCK):** `SIGNAL, SERVICE=0x04, LENGTH (µs, u16 LE), 0x0000` (the CRC is filled in by
+hardware). At 1 Mbit/s LENGTH = (frame + FCS) × 8.
+
+**Before each scan probe** the vendor driver sends `MCTRL(0x00100000, 0x00100000)`
+(MCTL_BCNS_PROMISC), `WRITE_SHM(0x5a, 0x3f)` (offset not named in brcmsmac [?]) and `READ_TSF`.
 
 For protected data the host sends the **plaintext** payload with the CCMP header filled in. The
 `d11txh` IV field carries the same CCMP header, and **the dongle hardware encrypts** [C].
@@ -276,6 +307,32 @@ u32 len
   own tool were all FCS-valid [C].
 - Protected frames arrive **already decrypted**, with the CCMP header and MIC still present, so
   their FCS no longer verifies.
+
+### 7.4 TX status: `DOTXSTATUS` (id 82, dongle → host) [C layout of words 1–3]
+
+One async call per transmitted MPDU, 32 bytes after the rpc_id. Status bits are brcmsmac's
+`TX_STATUS_*` (d11.h).
+
+```
+u16 word0        0 or 4 [?]
+u16 frameid      = d11txh TxFrameID of the frame it reports on
+u16 status       TX_STATUS_VALID 0x1, ACK_RCV 0x2, SUPR (bits 2-4), AMPDU 0x20, INTERMEDIATE 0x40,
+                 RTS retries (bits 8-11), frame transmissions (bits 12-15)
+u16 sequence     802.11 sequence number assigned by hardware (HWSEQ)
+u32              TSF (low word, µs) at transmission [I]
+u32 ×3           [?]  (word at byte 16 repeats the sequence; extra fields for AMPDU)
+u64              equals the TSF value the host read with READ_TSF before queueing the frame [I]
+```
+
+Status values seen: `0x1001` broadcast, sent once, no ACK expected · `0x1003` unicast, ACKed after one
+transmission · `0x2003` ACKed after two · `0x..63` A-MPDU data · `0x0011` suppressed, BADCH (frame
+queued just before a retune) [C].
+
+**Our own transmissions [C, 2026-10-04, firmware 5.100.148.5]:** after the init replay, retune to
+channel 6 and BCNS_PROMISC, `tools/rpcprobe` sent 2 wildcard broadcast probe requests and 2 directed
+unicast probe requests (CCK 1 Mbit/s, FIFO 3) to a test AP. All four tx statuses arrived 5–6 ms later
+(`0x1001`, `0x1001`, `0x2003`, `0x1003`): both unicast probes were **ACKed**. Eight probe responses
+addressed to the dongle's MAC came back from three APs (four from the test AP).
 
 ### 7.3 Receive setup [C, 2026-10-04]
 
@@ -311,9 +368,9 @@ call 41 ENABLE_MAC
 ## 9. Open questions
 
 - Word 3 of the vendor driver's HELLO message; arbitrary values work.
-- ids 157 and 161; ids 62–64. id 153 behaves like a statistics poll, which doesn't match the name the
-  5.75 enum gives index 152 (`SET_UCODE_LOADED`): evidence that the +1 rule may break above id 152.
-- Exact semantics of the TXFIFO header words 2–5, and the trailing 14 B of the RX header.
+- id 161 (sync, returns 1, new in 5.100); ids 62–64; the exact positions of the new ids in 143–156.
+- TXFIFO argument words 2–5; DOTXSTATUS words 0 and 4–7; SHM offset `0x5a` written before scan
+  probes; the trailing 14 B of the RX header.
 - Key install: confirm that id 40's 16-byte payloads are the TK/GTK by deriving the PTK from a
   capture with a known passphrase (PLAN phase 7).
 - Periodic/keepalive calls the firmware may require (ids 45 READ_TSF and 153 are polled).
