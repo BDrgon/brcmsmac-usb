@@ -21,7 +21,7 @@ BMAC_INIT, TXFIFO = 18, 61
 # Sync calls whose replies legitimately vary between runs. Key: id, or (id, first arg word).
 DEFAULT_VOLATILE = {
     45,             # READ_TSF
-    153,            # periodic statistics (unknown)
+    153,            # CCA_STATS_READ: channel-time counters [I]
     67, 101,        # tx power readings
     86,             # PHY noise average
     (1, 0x65a),     # REG_READ 0x65a: free-running counter in the capture itself
