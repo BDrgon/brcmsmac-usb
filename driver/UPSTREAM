@@ -1,0 +1,10 @@
+Imported unmodified from Linux 6.18.53 (kernel.org tarball linux-6.18.53.tar.xz,
+https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.18.53.tar.xz), 2026-10-04:
+
+  drivers/net/wireless/broadcom/brcm80211/brcmsmac/   -> driver/brcmsmac/
+  drivers/net/wireless/broadcom/brcm80211/include/    -> driver/include/
+  drivers/net/wireless/broadcom/brcm80211/brcmutil/{utils,d11}.c -> driver/brcmutil/
+
+These files are ISC-licensed (Broadcom Corporation; see their headers). The Raspberry Pi
+kernel tree (rpi-6.18.y, 6.18.50) carries the same brcmsmac sources. Local modifications are
+committed separately on top of the import so `git log -p driver/brcmsmac` shows every change.
