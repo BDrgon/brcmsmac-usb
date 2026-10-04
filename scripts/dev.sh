@@ -12,11 +12,13 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 set -a; . "$ROOT/config/local.env"; set +a
 : "${DEV_SSH:?set DEV_SSH in config/local.env}"
 : "${DEV_WORKDIR:?set DEV_WORKDIR in config/local.env}"
-dssh() { ssh -o BatchMode=yes "$DEV_SSH" "$@"; }
+# one multiplexed connection: many short sessions in a row can trip sshd's rate limiting
+SSH_OPTS="-o BatchMode=yes -o ControlMaster=auto -o ControlPath=/tmp/bmu-ssh-%C -o ControlPersist=10m"
+dssh() { ssh $SSH_OPTS "$DEV_SSH" "$@"; }
 MOD=brcmsmac_usb
 
 sync_repo() {
-	rsync -a --delete --exclude work/ --exclude config/local.env --exclude .git/ \
+	rsync -a -e "ssh $SSH_OPTS" --delete --exclude work/ --exclude config/local.env --exclude .git/ \
 		--exclude build/ --exclude '__pycache__/' \
 		--exclude '*.ko' --exclude '*.o' --exclude '*.mod' --exclude '*.mod.c' --exclude '.*.cmd' \
 		--exclude Module.symvers --exclude modules.order --exclude .tmp_versions/ "$ROOT/" "$DEV_SSH:$DEV_WORKDIR/"
