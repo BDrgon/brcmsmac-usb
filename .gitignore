@@ -1,0 +1,27 @@
+# --- Never commit: proprietary / private / local ---
+# private scratch: firmware, captures, vendor files, proprietary refs
+work/
+*.zip
+*.exe
+*.cab
+*.sys
+*.trx
+*.bin
+*.pcap
+*.pcapng
+config/local.env
+Pasted*.png
+.DS_Store
+
+# --- Build outputs ---
+*.ko
+*.o
+*.mod
+*.mod.c
+*.cmd
+.*.cmd
+modules.order
+Module.symvers
+.tmp_versions/
+__pycache__/
+*.pyc
