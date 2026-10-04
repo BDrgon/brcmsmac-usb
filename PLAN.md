@@ -12,8 +12,8 @@ found it, and updates the status board below.
 | Phase | Name | State | Gate |
 |---|---|---|---|
 | 0 | Reconnaissance | ✅ done | firmware extracted, protocol identified, capture decoded |
-| 1 | Repo & toolchain | ⏳ next | G1 |
-| 2 | Userspace reference driver (`rpcprobe`) | ⏳ | G2a RX, G2b TX |
+| 1 | Repo & toolchain | 🟡 G1 met except chunk 2 (blocked) | G1 |
+| 2 | Userspace reference driver (`rpcprobe`) | ⏳ next | G2a RX, G2b TX |
 | 3 | Kernel transport module | ⏳ | G3 |
 | 4 | brcmsmac fork + RPC stub layer | ⏳ | G4 |
 | 5 | RX path + monitor mode | ⏳ | G5 |
@@ -24,6 +24,7 @@ found it, and updates the status board below.
 
 **Chunk log** (newest first; one line per chunk, with what changed and where the notes are):
 
+- 2026-10-04 · phase 1 · git repo with local commits; tools promoted to `tools/` (neutral message-kind labels, `rpcids.py`, `usbrecover.py`); clean-room `docs/protocol.md`; `scripts/build.sh` (pi via Docker, native, x86) + `scripts/deploy.sh` verified with `driver/hello` on the Pi; recovery findings in `docs/recovery.md` (hard hang needs a physical replug on the Pi B+; firmware can also self-reboot). Chunk 2 (firmware extraction tool) **blocked**, awaiting a user decision.
 - 2026-10-04 · scaffolding · SPEC/PLAN written; repo skeleton, `.gitignore`, `config/local.env.example`.
 - 2026-10-04 · milestone 2 · read-only RPC calls pass on Pi (`work/tools/m2.py`); REG_READ before BMAC_INIT hangs the dongle.
 - 2026-10-04 · capture decode · run2 decoded; ID mapping 5.75→5.100 (≤61 same, ≥65 +1); RX/TX layouts (`work/PROTOCOL.md`).
@@ -73,6 +74,12 @@ Chunks:
 **Gate G1:** a hello-world module built on the Mac loads on the Pi, and `scripts/deploy.sh` is
 idempotent. `fwextract` reproduces the known hash from the vendor zip. `git status` shows no
 firmware, captures, vendor files or local config.
+
+**G1 status (2026-10-04):** ✅ cross-built (`scripts/build.sh pi`) and native hello modules each
+loaded/unloaded twice via `deploy.sh`; x86 compile check passes; `git status --ignored` clean.
+❌ **Chunk 2 is blocked:** a firmware extraction tool was not written in this chunk. Until the user
+decides how to handle this item, firmware for development comes from the private `work/` area, and
+the "fresh user" README path in Phase 9 depends on that decision.
 
 ## Phase 2 — Userspace reference driver (`tools/rpcprobe`)
 
