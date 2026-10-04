@@ -66,3 +66,13 @@ the Pi: `device descriptor read/8, error -32`, `unable to enumerate USB device`,
 the bus. So **on this host too, a port reset does not clear a hard hang; a physical replug is needed.**
 The driver itself never produces this order of calls. Lesson for bisecting: cut replayed sequences
 only at block boundaries (after UP_FINISH, or between whole SHM blocks).
+
+### Second trigger: register access after DOWN_FINISH (2026-10-04)
+
+A raw `sync 45` (READ_TSF) through debugfs `rpc`, sent while the interface was **down** (after
+mac80211 stop → DOWN_PREP/DOWN_FINISH), got no reply and hung the dongle hard: the driver's port
+reset failed (`device descriptor read/64, error -110`, then `-32`) and the device left the bus;
+physical replug needed. After DOWN_FINISH the firmware has the d11 core in reset with its clock
+off, the same state as before BMAC_INIT. The driver's guard (`bmu_guard`) now also refuses
+register/SHM/TSF calls between DOWN_FINISH and the next BMAC_INIT, including raw debugfs calls.
+Rule for experiments: **raw register/SHM/TSF calls only while the interface is up.**

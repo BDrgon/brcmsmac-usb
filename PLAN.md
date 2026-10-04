@@ -17,12 +17,14 @@ found it, and updates the status board below.
 | 3 | Kernel transport module | ✅ done (hard-hang reset untested) | G3 ✅ |
 | 4 | brcmsmac fork + RPC stub layer | ✅ done on x86; Pi cross-build OK, not run there | G4 ✅ (x86) |
 | 5 | RX path + monitor mode | ✅ done on x86 | G5 ✅ (x86) |
-| 6 | TX path + scan + open association | 🚧 in progress (branch `phase6`); dongle hung, replug needed | G6 ❌ not passed |
+| 6 | TX path + scan + open association | 🚧 in progress (branch `phase6`); TX works on fresh firmware; dongle hung again, replug needed | G6 ❌ not passed |
 | 7 | WPA2 + real-network use | ⏳ (blocked on G6) | G7 |
 | 8 | Robustness & soak | ⏳ | G8 |
 | 9 | Packaging & release | ⏳ | G9 = SPEC §9 |
 
 **Chunk log** (newest first; one line per chunk, with what changed and where the notes are):
+
+- 2026-10-04 · phase 6 cont. (branch `phase6`, partial) · After the replug (fresh firmware) the **unchanged** driver transmits fine: 4 active scans over 4 min idle, 44 probes, 0 suppressed; WPA2 association with the HOME AP in netns `bcmtest`, **DHCP ok, 20/20 pings** (91 tx statuses, 0 suppressed). So the EXPTIME failure is state the firmware accumulated during the previous session, not missing init on a fresh dongle; root cause **not found**. Fixed: brcmsmac's init-time EDCF defaults went to the wrong AC slots (ACI vs mac80211 queue numbering; upstream bug), now equal to the vendor's (compile-tested only). Found: SHM 0x7c = `M_AGING_THRSH`, written 800 by the vendor only (protocol.md §9). **Dongle hard-hung again**: a raw debugfs READ_TSF sent while the interface was down (after DOWN_FINISH); port reset failed → **physical replug needed**. The register guard now also covers DOWN_FINISH → BMAC_INIT (recovery.md). No open AP of ours exists (one third-party open BSS seen, not used); TEST hotspot not visible.
 
 - 2026-10-04 · phase 6 (branch `phase6`, partial) · TX enabled briefly (`allow_tx=1`, 2.4 GHz ch 1–11, scans and test associations only, inside netns `bcmtest`). Active scan, auth/assoc and WPA2 4-way handshake work; **G6 not passed**: TX degrades to tx-status SUPR EXPTIME within ~10–40 s of interface up, so DHCP never completes. Bisected with rpcprobe (details under Phase 6). New: debugfs `last_tx`/`txlog`/`rxtx`, 2048×256 B trace ring, key-table clear after BMAC_INIT (partly verified), `tests/hw/netns-assoc.sh`, `tools/dev/txcmp.py`. **Dongle hard-hung** by a synthetic userspace experiment (vendor init cut off mid-EDCF block, then our sequence); USB port reset failed (descriptor read -32) → off the bus, **physical replug needed**. TEST network (phone hotspot) never visible in scans during the session; the HOME network was used.
 
@@ -222,6 +224,29 @@ correct radiotap channel and signal. Passive `iw scan` works.
   cw 15/1023 — REG 0x3dc, SHM 0x7c = 800, MHF4 0x20, UP_FINISH) leaves state that survives a later
   BMAC_INIT and keeps TX working; our init lacks it. Next: bisect inside 140–278 **without cutting a
   block in half** (the cut at 210, inside the EDCF writes, hung the dongle).
+- **Continued 2026-10-04 (after replug):** on freshly downloaded firmware the unchanged driver
+  (HEAD `ca3b344`) shows **no** suppression: `scantx` (one active scan, TX on) after 40 s idle and three more
+  times over the next ~4 min: 11 probes sent each time, 0 suppressed; `tests/hw/netns-assoc.sh 20` with the HOME AP
+  (WPA2, ch 1): associated, 4-way handshake, DHCP ok, `20 packets transmitted, 20 received, 0%
+  packet loss`, tx statuses fifo 1: 41 ACK, fifo 3: 5 ACK + 45 broadcast, **0 suppressed**.
+  So the failure needs state that builds up over a firmware lifetime (the previous session ran the
+  same firmware through many driver reloads, rpcprobe vendor replays, associations and monitor
+  sessions without a reboot). Candidates, none confirmed: (a) TSF synced to the AP's on
+  association and kept across down/up/BMAC_INIT; (b) `M_AGING_THRSH` (SHM 0x7c): 0 under our
+  driver, 800 after any vendor replay, not written by brcmsmac; (c) firmware-internal TX state left
+  by unloads/reconnects with frames still queued. Note that the earlier bisect could not separate
+  (b) cleanly: whether 0x7c survives BMAC_INIT decides which replay ends with which value.
+- Next experiment (needs the replug): fresh firmware → driver works (as above) → then one change
+  at a time, with the interface **up** for any raw call: (1) `rpc call 51 0x7c 0x320`, then scan
+  tests; (2) unload/reload the driver (reconnect) with and without traffic queued, then scan tests;
+  (3) after an association, down/up and scan tests, reading TSF (id 45) only while up. Whichever
+  reproduces EXPTIME shows the trigger. Also check whether 0x7c survives BMAC_INIT (write it, then
+  down/up, read it back while up).
+- G6 evidence so far: active scan with TX ✓; association + DHCP + ping via WPA2 (no open test AP
+  under our control exists; the phone hotspot was not visible) ✓ for 20 s; the 5-minute ping was
+  not reached before the hang. **G6 stays ❌.**
+- Also seen: `brcms_c_d11hdrs_mac80211: txop exceeded phylen …/256 dur 1602/1504` once per
+  association (1 Mbit/s management frames longer than the AP's VO TXOP; upstream message, harmless).
 - Also open: DECATMPT on protected frames while associated despite the key-table clear (monitor
   mode is clean); `brcms_ops_config: change power-save mode (implement)` noise.
 

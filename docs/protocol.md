@@ -374,6 +374,8 @@ call 41 ENABLE_MAC
 
 - **Register access before `BMAC_INIT`** (e.g. id 1 REG_READ at offset `0x688`) hangs the whole
   dongle: no reply, and even `DL_GETVER` times out afterwards.
+- The same applies **after `DOWN_FINISH`** (id 8): id 45 READ_TSF sent while the interface was down
+  hung the dongle the same way; a USB port reset did not recover it.
 - **Recovery** from any hang: replug or USB port reset. Firmware lives in RAM only, so the device
   comes back in the boot ROM.
 - **Reconnecting** to running firmware without a reset works (ACCEPT with status 2).
@@ -387,5 +389,10 @@ call 41 ENABLE_MAC
 - Key install: confirm that id 40's 16-byte payloads are the TK/GTK by deriving the PTK from a
   capture with a known passphrase (PLAN phase 7).
 - Periodic/keepalive calls the firmware may require (ids 45 READ_TSF and 153 are polled).
+- SHM `0x7c` = brcmsmac's `M_AGING_THRSH` ("max time waiting for medium before tx"). The vendor
+  driver writes 800 (`0x320`) right before `UP_FINISH` (inside `SUSPEND_MAC … ENABLE_MAC`, next to
+  `MHF_SET(3, 0x20, 0x20)`); neither brcmsmac nor the staging driver writes it, and it reads 0 under
+  our driver on freshly booted firmware, where transmission works. Its unit and its role in the
+  `EXPTIME` suppressions seen in phase 6 are unknown.
 - What briefly takes the radio off-channel (§7.2, foreign-channel frames); id 140's arguments
   `(11, 0, 1, 0)` in the vendor init.
