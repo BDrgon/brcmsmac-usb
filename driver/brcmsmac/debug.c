@@ -29,6 +29,8 @@
 #include "types.h"
 #include "main.h"
 #include "debug.h"
+#include "mac80211_if.h"
+#include "bmac.h"
 #include "brcms_trace_events.h"
 
 static struct dentry *root_folder;
@@ -198,8 +200,77 @@ brcms_debugfs_add_entry(struct brcms_pub *drvr, const char *fn,
 	debugfs_create_file(fn, 0444, dentry, entry, &brcms_debugfs_def_ops);
 }
 
+/* brcmsmac_usb: the last buffer given to the TX FIFO (d11txh + PLCP + frame), for comparing
+ * against tools/rpcprobe/tx.py. Filled even when allow_tx=0 (then "not sent"). */
+static int brcms_debugfs_last_tx_read(struct seq_file *s, void *data)
+{
+	struct brcms_pub *drvr = s->private;
+	struct bmac_core *c = drvr->wlc->hw->d11core;
+	struct brcms_info *wl = drvr->wlc->wl;
+	u32 n;
+
+	mutex_lock(&wl->lock);
+	n = min_t(u32, c->last_tx_len, sizeof(c->last_tx));
+	seq_printf(s, "fifo %u len %u %s\n", c->last_tx_fifo, c->last_tx_len,
+		   c->last_tx_sent ? "sent" : "not sent (allow_tx=0)");
+	seq_hex_dump(s, "", DUMP_PREFIX_OFFSET, 16, 1, c->last_tx, n, false);
+	mutex_unlock(&wl->lock);
+	return 0;
+}
+
+static int brcms_debugfs_rxtx_read(struct seq_file *s, void *data)
+{
+	static const char * const s1names[16] = {
+		"FCSERR", "RESPFRAMETX", "PBPRES", "DECATMPT", "DECERR", "seckidx0", "seckidx1",
+		"seckidx2", "seckidx3", "seckidx4", "seckidx5", "b11", "b12", "b13", "b14", "BCNSENT" };
+	struct brcms_pub *drvr = s->private;
+	struct bmac_core *c = drvr->wlc->hw->d11core;
+	int i;
+
+	seq_printf(s, "rx frames %u protected %u\n", c->cnt.frames, c->cnt.prot);
+	for (i = 0; i < 16; i++)
+		if (c->cnt.s1[i])
+			seq_printf(s, "  RxStatus1 %-12s %u (protected %u)\n", s1names[i],
+				   c->cnt.s1[i], c->cnt.prot_s1[i]);
+	seq_printf(s, "tx status %u: ack %u, no ack %u, suppressed %u\n",
+		   c->cnt.txs, c->cnt.txs_ack, c->cnt.txs_noack, c->cnt.txs_supr);
+	for (i = 0; i < BMAC_NFIFO; i++)
+		if (c->cnt.fifo_ack[i] + c->cnt.fifo_noack[i] + c->cnt.fifo_supr[i])
+			seq_printf(s, "  fifo %d: ack %u, no ack %u, suppressed %u\n", i,
+				   c->cnt.fifo_ack[i], c->cnt.fifo_noack[i], c->cnt.fifo_supr[i]);
+	for (i = 1; i < 8; i++)
+		if (c->cnt.supr_reason[i])
+			seq_printf(s, "  suppress reason %d (%s): %u\n", i, (const char *[]){
+				   "", "PMQ", "FLUSH", "FRAG/TBTT", "BADCH", "EXPTIME", "UF", "?"}[i],
+				   c->cnt.supr_reason[i]);
+	return 0;
+}
+
+static int brcms_debugfs_txlog_read(struct seq_file *s, void *data)
+{
+	struct brcms_pub *drvr = s->private;
+	struct bmac_core *c = drvr->wlc->hw->d11core;
+	struct brcms_info *wl = drvr->wlc->wl;
+	unsigned int i, n = ARRAY_SIZE(c->txlog);
+
+	seq_puts(s, "time_us kind fifo frameid status fc mcl seq len\n");
+	mutex_lock(&wl->lock);
+	for (i = c->txlog_head > n ? c->txlog_head - n : 0; i < c->txlog_head; i++) {
+		struct bmac_txlog_ent *e = &c->txlog[i % n];
+
+		seq_printf(s, "%lld %c %u 0x%04x 0x%04x 0x%04x 0x%04x %u %u\n",
+			   ktime_to_us(e->t), e->kind, e->fifo, e->frameid, e->status, e->fc,
+			   e->mcl, e->seq, e->len);
+	}
+	mutex_unlock(&wl->lock);
+	return 0;
+}
+
 void brcms_debugfs_create_files(struct brcms_pub *drvr)
 {
+	brcms_debugfs_add_entry(drvr, "txlog", brcms_debugfs_txlog_read);
+	brcms_debugfs_add_entry(drvr, "rxtx", brcms_debugfs_rxtx_read);
+	brcms_debugfs_add_entry(drvr, "last_tx", brcms_debugfs_last_tx_read);
 	brcms_debugfs_add_entry(drvr, "hardware", brcms_debugfs_hardware_read);
 	brcms_debugfs_add_entry(drvr, "macstat", brcms_debugfs_macstat_read);
 }

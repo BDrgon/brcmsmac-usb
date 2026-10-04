@@ -114,6 +114,31 @@ struct bmac_core {
 	bool tsf_valid;
 	u32 tsf_h, tsf_l;		/* last READ_TSF reply */
 	unsigned long tsf_read_at;	/* jiffies */
+
+	/* last buffer handed to dma_txfast(), sent or not (debugfs last_tx) */
+	u8 last_tx[256];
+	u32 last_tx_len;		/* full length; at most sizeof(last_tx) kept */
+	u8 last_tx_fifo;
+	bool last_tx_sent;
+
+	/* TX submit/status log (debugfs txlog) */
+	struct bmac_txlog_ent {
+		ktime_t t;
+		u8 kind;		/* 'S' submitted, 'T' tx status, 'D' dropped (allow_tx=0) */
+		u8 fifo;
+		u16 frameid, status, fc, mcl, seq;
+		u16 len;
+	} txlog[128];
+	unsigned int txlog_head;
+
+	/* receive/transmit counters (debugfs rxtx) */
+	struct {
+		u32 frames, prot;
+		u32 s1[16], prot_s1[16];	/* RxStatus1 bits, all / protected frames */
+		u32 txs, txs_ack, txs_noack, txs_supr;
+		u32 fifo_ack[BMAC_NFIFO], fifo_noack[BMAC_NFIFO], fifo_supr[BMAC_NFIFO];
+		u32 supr_reason[8];
+	} cnt;
 };
 
 /* rpc helpers (process context; the wl mutex is held by callers) */
@@ -174,6 +199,9 @@ void brcms_c_txstatus_one(struct brcms_c_info *wlc, struct tx_status *txs);
 struct brcms_phy_pub;
 struct brcms_phy_pub *bmac_phy_attach(struct bmac_core *c, uint bandunit);
 void bmac_phy_detach(struct brcms_phy_pub *pi);
+
+void bmac_txlog(struct bmac_core *c, u8 kind, uint fifo, u16 frameid, u16 status, u16 fc,
+		u16 mcl, u16 seq, u16 len);
 
 /* emulated TX DMA rings (bmac_dma.c) */
 struct dma_pub *bmac_txq_attach(struct brcms_c_info *wlc, uint fifo, uint ntxd);

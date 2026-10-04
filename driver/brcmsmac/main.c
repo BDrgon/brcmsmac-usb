@@ -699,6 +699,9 @@ brcms_c_dotxstatus(struct brcms_c_info *wlc, struct tx_status *txs)
 	}
 	tx_info = IEEE80211_SKB_CB(p);
 	h = (struct ieee80211_hdr *)((u8 *) (txh + 1) + D11_PHY_HDR_LEN);
+	bmac_txlog(wlc->hw->d11core, 'T', queue, txs->frameid, txs->status,
+		   le16_to_cpu(h->frame_control), le16_to_cpu(txh->MacTxControlLow),
+		   txs->sequence, p->len);
 
 	if (tx_info->rate_driver_data[0])
 		scb = &wlc->pri_scb;

@@ -695,6 +695,24 @@ bool brcms_c_intrsupd(struct brcms_c_info *wlc)
 /* ------------------------------------------------------------------------------------------ */
 /* messages from the LOW */
 
+static void bmac_count_rx(struct bmac_core *c, const struct d11rxhdr *rxh,
+			  const struct sk_buff *p)
+{
+	uint off = BRCMS_HWRXOFF + ((rxh->RxStatus1 & RXS_PBPRES) ? 2 : 0) + D11_PHY_HDR_LEN + 1;
+	bool prot = p->len > off && (p->data[off] & 0x40);	/* FC byte 1: Protected */
+	int i;
+
+	c->cnt.frames++;
+	c->cnt.prot += prot;
+	for (i = 0; i < 16; i++) {
+		if (!(rxh->RxStatus1 & BIT(i)))
+			continue;
+		c->cnt.s1[i]++;
+		if (prot)
+			c->cnt.prot_s1[i]++;
+	}
+}
+
 /*
  * WLC_RECV (81): u32 len, then exactly brcmsmac's DMA receive buffer: the 38-byte hardware
  * header (struct d11rxhdr + extras), optional 2-byte pad, PLCP, frame + FCS (docs/protocol.md
@@ -727,11 +745,28 @@ void brcms_c_rpc_recv(struct brcms_c_info *wlc, struct sk_buff *p)
 	rxh->RxTSFTime = le16_to_cpu((__force __le16)rxh->RxTSFTime);
 	rxh->RxChan = le16_to_cpu((__force __le16)rxh->RxChan);
 
+	bmac_count_rx(wlc->hw->d11core, rxh, p);
 	brcms_c_recv_frame(wlc, p);
 	return;
 toss:
 	dev_dbg_ratelimited(wlc->hw->d11core->dev, "bad WLC_RECV message (%u bytes)\n", p->len);
 	brcmu_pkt_buf_free_skb(p);
+}
+
+void bmac_txlog(struct bmac_core *c, u8 kind, uint fifo, u16 frameid, u16 status, u16 fc,
+		u16 mcl, u16 seq, u16 len)
+{
+	struct bmac_txlog_ent *e = &c->txlog[c->txlog_head++ % ARRAY_SIZE(c->txlog)];
+
+	e->t = ktime_get();
+	e->kind = kind;
+	e->fifo = fifo;
+	e->frameid = frameid;
+	e->status = status;
+	e->fc = fc;
+	e->mcl = mcl;
+	e->seq = seq;
+	e->len = len;
 }
 
 /*
@@ -740,7 +775,9 @@ toss:
  */
 void brcms_c_rpc_txstatus(struct brcms_c_info *wlc, const u8 *args, u32 len)
 {
+	struct bmac_core *c = wlc->hw->d11core;
 	struct tx_status txs = { };
+	uint fifo;
 
 	if (len < 12)
 		return;
@@ -748,5 +785,19 @@ void brcms_c_rpc_txstatus(struct brcms_c_info *wlc, const u8 *args, u32 len)
 	txs.status = get_unaligned_le16(args + 4);
 	txs.sequence = get_unaligned_le16(args + 6);
 	txs.lasttxtime = get_unaligned_le32(args + 8);
+
+	fifo = (txs.frameid & TXFID_QUEUE_MASK) % BMAC_NFIFO;
+	c->cnt.txs++;
+	if (txs.status & TX_STATUS_SUPR_MASK) {
+		c->cnt.txs_supr++;
+		c->cnt.fifo_supr[fifo]++;
+		c->cnt.supr_reason[(txs.status & TX_STATUS_SUPR_MASK) >> TX_STATUS_SUPR_SHIFT]++;
+	} else if (txs.status & TX_STATUS_ACK_RCV) {
+		c->cnt.txs_ack++;
+		c->cnt.fifo_ack[fifo]++;
+	} else {
+		c->cnt.txs_noack++;
+		c->cnt.fifo_noack[fifo]++;
+	}
 	brcms_c_txstatus_one(wlc, &txs);
 }

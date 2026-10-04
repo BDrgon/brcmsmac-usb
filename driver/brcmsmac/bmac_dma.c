@@ -70,8 +70,11 @@ void dma_detach(struct dma_pub *pub)
 
 /*
  * BMAC_TXFIFO (61): fifo, commit, frameid, txpktpend, 0, 0, len, then the buffer padded to 4.
- * Words 2–5 are taken from the vendor driver's management frames (0xffff, 1, 0, 0;
- * docs/protocol.md §7.1); their meaning for data frames is still to be confirmed.
+ * The staging HIGH code (ISC wlc_mac80211.c wlc_txfifo -> wlc_rpctx_tx(fifo, p, commit,
+ * frameid, txpktpend)) passes frameid = INVALIDFID except on the BCMC FIFO, and txpktpend = 1
+ * for a single MPDU: exactly the vendor's (0xffff, 1, 0, 0) for management frames
+ * (docs/protocol.md §7.1). The vendor's different words on data frames come with A-MPDU, which
+ * we don't use, so every frame gets these.
  */
 int dma_txfast(struct brcms_c_info *wlc, struct dma_pub *pub, struct sk_buff *p)
 {
@@ -83,6 +86,18 @@ int dma_txfast(struct brcms_c_info *wlc, struct dma_pub *pub, struct sk_buff *p)
 
 	if (!pub->txavail)
 		return -ENOSPC;
+
+	c->last_tx_len = p->len;
+	c->last_tx_fifo = q->fifo;
+	c->last_tx_sent = bmac_allow_tx;
+	memcpy(c->last_tx, p->data, min_t(u32, p->len, sizeof(c->last_tx)));
+	if (p->len >= D11_TXH_LEN + D11_PHY_HDR_LEN + 2) {
+		struct d11txh *txh = (struct d11txh *)p->data;
+
+		bmac_txlog(c, bmac_allow_tx ? 'S' : 'D', q->fifo, le16_to_cpu(txh->TxFrameID), 0,
+			   get_unaligned_le16(p->data + D11_TXH_LEN + D11_PHY_HDR_LEN),
+			   le16_to_cpu(txh->MacTxControlLow), 0, p->len);
+	}
 
 	/*
 	 * The caller still uses p after we return, so frames that don't go out are parked and
