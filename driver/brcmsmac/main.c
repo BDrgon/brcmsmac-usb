@@ -4917,6 +4917,9 @@ void brcms_c_init(struct brcms_c_info *wlc, bool mute_tx)
 		brcms_c_set_ps_ctrl(wlc);
 	}
 
+	/* brcmsmac_usb: the firmware keeps its key tables across BMAC_INIT (bmac.c) */
+	bmac_key_hw_init(core);
+
 	brcms_c_bandinit_ordered(wlc, chanspec);
 
 	/* init probe response timeout */

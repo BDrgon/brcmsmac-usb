@@ -174,6 +174,8 @@ static int bmu_guard(struct bmu_dev *d, u32 id)
 	case BMU_ID_COPYTO_OBJMEM:
 	case BMU_ID_READ_SHM:
 	case BMU_ID_READ_TSF:
+	case BMU_ID_SET_RCMTA:
+	case BMU_ID_SET_SHM:
 	case BMU_ID_WRITE_SHM:
 	case BMU_ID_WRITE_TEMPLATE:
 		if (!READ_ONCE(d->bmac_init_sent)) {

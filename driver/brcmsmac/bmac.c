@@ -360,6 +360,38 @@ void brcms_b_write_template_ram(struct brcms_hardware *wlc_hw, int offset, int l
 }
 
 /* ------------------------------------------------------------------------------------------ */
+/* security engine */
+
+#define BMAC_SEC_KEYS		54	/* WSEC_MAX_RCMTA_KEYS: 50 pairwise + 4 default */
+#define BMAC_RCMTA_SIZE		50
+#define D11_RCMTA_SIZE_REG	0x43c	/* d11 rcmta_size (staging d11.h; padding in brcmsmac's) */
+
+/*
+ * On PCI brcmsmac never touches the key engine: its ucode download and initvals leave every key
+ * slot's algorithm OFF. BMAC_INIT does not clear the firmware's key tables, and with stale
+ * entries the ucode tries to decrypt received frames itself (RxStatus1 DECATMPT on every
+ * protected frame), which breaks mac80211's software CCMP. Clear them as the vendor driver does
+ * right after BMAC_INIT (staging wlc_init() -> wlc_key_hw_init_all()), with the same calls in
+ * the same order (docs/protocol.md §5): key data (SET_SHM over M_SECRXKEYS_PTR), the per-key
+ * algorithm block, the RCMTA address table and its size register.
+ */
+void bmac_key_hw_init(struct bmac_core *c)
+{
+	u32 seckeys = 2 * bmac_sync_u32(c, BRPC_READ_SHM, 1, M_SECRXKEYS_PTR);
+	int i;
+
+	if (seckeys)
+		bmac_call(c, BRPC_SET_SHM, 3, seckeys, 0, BMAC_SEC_KEYS * D11_MAX_KEY_SIZE);
+	else
+		dev_warn(c->dev, "M_SECRXKEYS_PTR reads 0; key data not cleared\n");
+	for (i = 0; i < BMAC_SEC_KEYS; i++)
+		bmac_call(c, BRPC_WRITE_SHM, 2, M_SECKINDXALGO_BLK + 2 * i, WSEC_ALGO_OFF);
+	for (i = 0; i < BMAC_RCMTA_SIZE; i++)
+		bmac_call(c, BRPC_SET_RCMTA, 3, i, 0, 0);	/* (idx, 00:00:00:00:00:00 + pad) */
+	bmac_reg_write(c, D11_RCMTA_SIZE_REG, BMAC_RCMTA_SIZE, 2);
+}
+
+/* ------------------------------------------------------------------------------------------ */
 /* MAC control */
 
 void brcms_b_mhf(struct brcms_hardware *wlc_hw, u8 idx, u16 mask, u16 val, int bands)

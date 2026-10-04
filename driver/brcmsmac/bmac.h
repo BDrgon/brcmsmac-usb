@@ -45,6 +45,8 @@ enum bmac_rpc_id {
 	BRPC_READ_TSF = 45,
 	BRPC_SET_ADDRMATCH = 46,
 	BRPC_SET_CWMAX = 47,
+	BRPC_SET_RCMTA = 48,
+	BRPC_SET_SHM = 49,
 	BRPC_SUSPEND_MAC = 50,
 	BRPC_WRITE_SHM = 51,
 	BRPC_WRITE_TEMPLATE = 52,
@@ -161,6 +163,9 @@ void bmac_reg_write(struct bmac_core *c, u32 off, u32 v, u32 size);
 
 /* attach-time identity, read once from the dongle (bmac.c) */
 int bmac_core_init(struct bmac_core *c);
+
+/* clear the hardware key tables after BMAC_INIT (no hardware crypto is used) */
+void bmac_key_hw_init(struct bmac_core *c);
 
 /* LOW MAC proxy entry points used by main.c (bmac.c; attach/init glue lives in main.c) */
 void brcms_b_hw_up(struct brcms_hardware *wlc_hw);
