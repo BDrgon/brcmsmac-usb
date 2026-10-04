@@ -17,7 +17,7 @@
 #ifndef _BRCM_PUB_H_
 #define _BRCM_PUB_H_
 
-#include <linux/bcma/bcma.h>
+#include "bmac.h"
 #include <brcmu_wifi.h>
 #include "types.h"
 #include "defs.h"
@@ -267,13 +267,12 @@ struct brcms_antselcfg {
 
 /* common functions for every port */
 struct brcms_c_info *brcms_c_attach(struct brcms_info *wl,
-				    struct bcma_device *core, uint unit,
+				    struct bmac_core *core, uint unit,
 				    bool piomode, uint *perr);
 uint brcms_c_detach(struct brcms_c_info *wlc);
 int brcms_c_up(struct brcms_c_info *wlc);
 uint brcms_c_down(struct brcms_c_info *wlc);
 
-bool brcms_c_chipmatch(struct bcma_device *core);
 void brcms_c_init(struct brcms_c_info *wlc, bool mute_tx);
 void brcms_c_reset(struct brcms_c_info *wlc);
 

@@ -330,7 +330,7 @@ struct brcms_hardware {
 	u32 machwcap_backup;	/* backup of machwcap */
 
 	struct si_pub *sih;	/* SI handle (cookie for siutils calls) */
-	struct bcma_device *d11core;	/* pointer to 802.11 core */
+	struct bmac_core *d11core;	/* brcmsmac_usb: RPC stand-in for the d11 core */
 	struct phy_shim_info *physhim; /* phy shim layer handler */
 	struct shared_phy *phy_sh;	/* pointer to shared phy state */
 	struct brcms_hw_band *band;/* pointer to active per-band state */

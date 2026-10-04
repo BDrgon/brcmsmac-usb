@@ -109,7 +109,7 @@ brcms_c_antsel_init_cfg(struct antsel_info *asi, struct brcms_antselcfg *antsel,
 struct antsel_info *brcms_c_antsel_attach(struct brcms_c_info *wlc)
 {
 	struct antsel_info *asi;
-	struct ssb_sprom *sprom = &wlc->hw->d11core->bus->sprom;
+	struct ssb_sprom *sprom = &wlc->hw->d11core->sprom;
 
 	asi = kzalloc(sizeof(*asi), GFP_ATOMIC);
 	if (!asi)

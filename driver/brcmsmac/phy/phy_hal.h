@@ -93,6 +93,7 @@
 #define	BRCMS_RSSI_INVALID	 0	/* invalid RSSI value */
 
 struct d11regs;
+struct bcma_device;
 struct phy_shim_info;
 
 struct txpwr_limits {

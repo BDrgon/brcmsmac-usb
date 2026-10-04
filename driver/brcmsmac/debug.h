@@ -17,8 +17,16 @@
 #ifndef _BRCMS_DEBUG_H_
 #define _BRCMS_DEBUG_H_
 
+/*
+ * brcmsmac_usb: "core" is the struct bmac_core stand-in for the bcma d11 core;
+ * messages go to its USB interface device. Debug messages are always built in
+ * and gated by the "debug" module parameter (BRCM_DL_* bits), independent of the
+ * kernel's CONFIG_BRCMDBG, which belongs to the in-tree driver.
+ */
+#define BMU_BRCMDBG
+
 #include <linux/device.h>
-#include <linux/bcma/bcma.h>
+#include "bmac.h"
 #include <net/cfg80211.h>
 #include <net/mac80211.h>
 #include "main.h"
@@ -33,7 +41,7 @@ void __brcms_err(struct device *dev, const char *fmt, ...);
 __printf(2, 3)
 void __brcms_crit(struct device *dev, const char *fmt, ...);
 
-#if defined(CONFIG_BRCMDBG) || defined(CONFIG_BRCM_TRACING)
+#ifdef BMU_BRCMDBG
 __printf(4, 5)
 void __brcms_dbg(struct device *dev, u32 level, const char *func,
 		 const char *fmt, ...);
@@ -51,11 +59,11 @@ void __brcms_dbg(struct device *dev, u32 level, const char *func,
  * returned successfully probably shouldn't use the following macros.
  */
 
-#define brcms_dbg(core, l, f, a...)	__brcms_dbg(&(core)->dev, l, __func__, f, ##a)
-#define brcms_info(core, f, a...)	__brcms_info(&(core)->dev, f, ##a)
-#define brcms_warn(core, f, a...)	__brcms_warn(&(core)->dev, f, ##a)
-#define brcms_err(core, f, a...)	__brcms_err(&(core)->dev, f, ##a)
-#define brcms_crit(core, f, a...)	__brcms_crit(&(core)->dev, f, ##a)
+#define brcms_dbg(core, l, f, a...)	__brcms_dbg((core)->dev, l, __func__, f, ##a)
+#define brcms_info(core, f, a...)	__brcms_info((core)->dev, f, ##a)
+#define brcms_warn(core, f, a...)	__brcms_warn((core)->dev, f, ##a)
+#define brcms_err(core, f, a...)	__brcms_err((core)->dev, f, ##a)
+#define brcms_crit(core, f, a...)	__brcms_crit((core)->dev, f, ##a)
 
 #define brcms_dbg_info(core, f, a...)		brcms_dbg(core, BRCM_DL_INFO, f, ##a)
 #define brcms_dbg_mac80211(core, f, a...)	brcms_dbg(core, BRCM_DL_MAC80211, f, ##a)

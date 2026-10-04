@@ -327,7 +327,7 @@ struct brcms_cm_info *brcms_c_channel_mgr_attach(struct brcms_c_info *wlc)
 {
 	struct brcms_cm_info *wlc_cm;
 	struct brcms_pub *pub = wlc->pub;
-	struct ssb_sprom *sprom = &wlc->hw->d11core->bus->sprom;
+	struct ssb_sprom *sprom = &wlc->hw->d11core->sprom;
 	const char *ccode = sprom->alpha2;
 	int ccode_len = sizeof(sprom->alpha2);
 

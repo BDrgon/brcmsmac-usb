@@ -22,7 +22,11 @@
 #include <linux/tracepoint.h>
 #include "mac80211_if.h"
 
-#ifndef CONFIG_BRCM_TRACING
+/*
+ * brcmsmac_usb: tracepoints are never built; the in-tree driver owns the
+ * "brcmsmac" trace system (CONFIG_BRCM_TRACING refers to it).
+ */
+#if 1
 #undef TRACE_EVENT
 #define TRACE_EVENT(name, proto, ...) \
 static inline void trace_ ## name(proto) {}

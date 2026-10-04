@@ -30,13 +30,13 @@
 #include "main.h"
 #include "debug.h"
 #include "brcms_trace_events.h"
-#include "phy/phy_int.h"
 
 static struct dentry *root_folder;
 
 void brcms_debugfs_init(void)
 {
-	root_folder = debugfs_create_dir(KBUILD_MODNAME, NULL);
+	/* separate from the transport's brcmsmac_usb-<intf> directories */
+	root_folder = debugfs_create_dir("brcmsmac_usb_wl", NULL);
 }
 
 void brcms_debugfs_exit(void)
@@ -48,7 +48,7 @@ void brcms_debugfs_exit(void)
 void brcms_debugfs_attach(struct brcms_pub *drvr)
 {
 	drvr->dbgfs_dir = debugfs_create_dir(
-		 dev_name(&drvr->wlc->hw->d11core->dev), root_folder);
+		 dev_name(drvr->wlc->hw->d11core->dev), root_folder);
 }
 
 void brcms_debugfs_detach(struct brcms_pub *drvr)
@@ -61,8 +61,7 @@ int brcms_debugfs_hardware_read(struct seq_file *s, void *data)
 {
 	struct brcms_pub *drvr = s->private;
 	struct brcms_hardware *hw = drvr->wlc->hw;
-	struct bcma_device *core = hw->d11core;
-	struct bcma_bus *bus = core->bus;
+	struct bmac_core *core = hw->d11core;
 	char boardrev[BRCMU_BOARDREV_LEN];
 
 	seq_printf(s, "chipnum 0x%x\n"
@@ -80,12 +79,12 @@ int brcms_debugfs_hardware_read(struct seq_file *s, void *data)
 		   "phyrev 0x%x\n"
 		   "anarev 0x%x\n"
 		   "nvramrev %d\n",
-		   bus->chipinfo.id, bus->chipinfo.rev, bus->chipinfo.pkg,
-		   core->id.rev, bus->boardinfo.type, bus->boardinfo.vendor,
+		   core->rev.chip, core->rev.chiprev, core->rev.chippkg,
+		   core->rev.corerev, core->rev.boardtype, core->rev.boardvendor,
 		   brcmu_boardrev_str(hw->boardrev, boardrev),
 		   drvr->wlc->hw->boardflags, drvr->wlc->hw->boardflags2,
 		   drvr->wlc->ucode_rev, hw->band->radiorev,
-		   hw->band->phytype, hw->band->phyrev, hw->band->pi->ana_rev,
+		   hw->band->phytype, hw->band->phyrev, core->rev.band[0].anarev,
 		   hw->sromrev);
 	return 0;
 }
@@ -97,9 +96,9 @@ static int brcms_debugfs_macstat_read(struct seq_file *s, void *data)
 	struct macstat stats;
 	int i;
 
-	spin_lock_bh(&wl->lock);
+	mutex_lock(&wl->lock);
 	stats = *(drvr->wlc->core->macstat_snapshot);
-	spin_unlock_bh(&wl->lock);
+	mutex_unlock(&wl->lock);
 
 	seq_printf(s, "txallfrm: %d\n", stats.txallfrm);
 	seq_printf(s, "txrtsfrm: %d\n", stats.txrtsfrm);
@@ -185,7 +184,7 @@ static void
 brcms_debugfs_add_entry(struct brcms_pub *drvr, const char *fn,
 			int (*read_fn)(struct seq_file *seq, void *data))
 {
-	struct device *dev = &drvr->wlc->hw->d11core->dev;
+	struct device *dev = drvr->wlc->hw->d11core->dev;
 	struct dentry *dentry =  drvr->dbgfs_dir;
 	struct brcms_debugfs_entry *entry;
 
@@ -225,7 +224,7 @@ __brcms_fn(warn)
 __brcms_fn(err)
 __brcms_fn(crit)
 
-#if defined(CONFIG_BRCMDBG) || defined(CONFIG_BRCM_TRACING)
+#ifdef BMU_BRCMDBG
 void __brcms_dbg(struct device *dev, u32 level, const char *func,
 		 const char *fmt, ...)
 {
@@ -236,10 +235,8 @@ void __brcms_dbg(struct device *dev, u32 level, const char *func,
 
 	va_start(args, fmt);
 	vaf.va = &args;
-#ifdef CONFIG_BRCMDBG
 	if ((brcm_msg_level & level) && net_ratelimit())
-		dev_err(dev, "%s %pV", func, &vaf);
-#endif
+		dev_info(dev, "%s %pV", func, &vaf);
 	trace_brcms_dbg(level, func, &vaf);
 	va_end(args);
 }

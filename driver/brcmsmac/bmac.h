@@ -4,27 +4,23 @@
  *
  * In brcmsmac the LOW MAC (brcms_b_*) drives the d11 core directly over bcma. On the USB BMAC
  * dongle the LOW MAC runs in firmware, so these functions become RPC calls (docs/split-map.md).
+ *
+ * Only calls whose argument layout has been seen in captures of the vendor driver are sent
+ * (docs/protocol.md §5). LOW functions with no observed RPC are host-side no-ops and say so.
  */
 #ifndef _BRCMS_BMAC_H_
 #define _BRCMS_BMAC_H_
 
 #include <linux/types.h>
 #include <linux/skbuff.h>
+#include <linux/device.h>
 #include <linux/ssb/ssb.h>
 
 struct bmu_dev;
 struct brcms_c_info;
 struct brcms_hardware;
-
-/* Stand-in for the bcma d11 core: the transport plus a device for logging. */
-struct bmac_core {
-	struct bmu_dev *bmu;
-	struct device *dev;
-	u32 maccontrol;		/* shadow of MCTRL writes (the firmware owns the register) */
-	u16 chanspec;		/* last chanspec sent to the PHY */
-	u8 hw_txchain, hw_rxchain;
-	u16 band_chans[4];	/* channel bitmap from PHY_BAND_CHANNELS (bit n = channel n) */
-};
+struct brcms_info;
+struct dma_pub;
 
 /* firmware 5.100.148.5 rpc ids (docs/protocol.md §5) */
 enum bmac_rpc_id {
@@ -39,7 +35,6 @@ enum bmac_rpc_id {
 	BRPC_RPC_AGG_SET = 14,
 	BRPC_BMAC_INIT = 18,
 	BRPC_SET_CWMIN = 19,
-	BRPC_BMAC_MUTE = 20,
 	BRPC_PHY_HOLD_UPD = 22,
 	BRPC_PHY_MUTE_UPD = 23,
 	BRPC_COPYFROM_OBJMEM = 39,
@@ -53,15 +48,13 @@ enum bmac_rpc_id {
 	BRPC_SUSPEND_MAC = 50,
 	BRPC_WRITE_SHM = 51,
 	BRPC_WRITE_TEMPLATE = 52,
-	BRPC_TX_FIFO_SUSPEND = 53,
-	BRPC_TX_FIFO_RESUME = 54,
 	BRPC_HW_ETHERADDR = 56,
-	BRPC_SET_HW_ETHERADDR = 57,
 	BRPC_CHANSPEC_SET = 58,
 	BRPC_TXANT_SET = 59,
 	BRPC_ANTSEL_TYPE_SET = 60,
 	BRPC_TXFIFO = 61,
 	BRPC_SET_SHORTSLOT = 65,
+	BRPC_WAIT_FOR_WAKE = 66,
 	BRPC_TXPOWER_HW_CTRL_GET = 68,
 	BRPC_BAND_STF_SS_SET = 71,
 	BRPC_PHY_BAND_CHANNELS = 74,
@@ -71,6 +64,7 @@ enum bmac_rpc_id {
 	BRPC_WLC_RECV = 81,
 	BRPC_DOTXSTATUS = 82,
 	BRPC_HIGH_DPC = 83,
+	BRPC_FATAL_ERROR = 84,
 	BRPC_CH14_WIDE_FILTER = 85,
 	BRPC_PHYCHAIN_INIT = 87,
 	BRPC_PHYCHAIN_SET = 88,
@@ -84,13 +78,46 @@ enum bmac_rpc_id {
 	BRPC_PHY_LDPC_SET = 157,
 };
 
+/* REVINFO_GET (75) reply, u32 words; 5.100 has corerev before boardrev (docs/split-map.md §1) */
+struct bmac_revinfo {
+	u32 vendorid, deviceid, corerev, boardrev, sromrev, chiprev, chip, chippkg;
+	u32 boardtype, boardvendor, bustype, buscoretype, buscorerev, issim, nbands;
+	struct {
+		u32 bandunit, bandtype, radiorev, phytype, phyrev, anarev, radioid, abgphy_encore;
+	} band[2];
+};
+
+#define BMAC_NFIFO	6
+
+/* 802.11 default retry limits; the firmware starts with these */
+#define RETRY_SHORT_DEF_FW	7
+#define RETRY_LONG_DEF_FW	4
+
+/* size of the hardware receive header in front of every received frame */
+#define BRCMS_HWRXOFF		38
+
+/* Stand-in for the bcma d11 core: the RPC transport plus what attach learned about the device. */
+struct bmac_core {
+	struct bmu_dev *bmu;
+	struct device *dev;		/* USB interface, for logging */
+	struct brcms_c_info *wlc;
+	struct bmac_revinfo rev;
+	struct ssb_sprom sprom;		/* filled from the dongle's NVRAM text (id 91) */
+	u8 macaddr[6];
+	u16 xmtfifo_sz[BMAC_NFIFO];
+	u8 band_chanvec[2][32];		/* PHY_BAND_CHANNELS bitmaps (bit n = channel n) */
+	u16 chanspec;			/* last chanspec sent to the LOW */
+	bool txpwr_hw_ctrl;
+	u16 srl, lrl;			/* retry limits the LOW is using */
+};
+
 /* rpc helpers (process context; the wl mutex is held by callers) */
 int bmac_call(struct bmac_core *c, u32 id, int nwords, ...);
 int bmac_call_buf(struct bmac_core *c, u32 id, const void *args, u32 len);
 int bmac_sync(struct bmac_core *c, u32 id, void *ret, u32 retmax, u32 *retlen, int nwords, ...);
 u32 bmac_sync_u32(struct bmac_core *c, u32 id, int nwords, ...);
 
-/* d11 register access for the few HIGH paths that need it (only after BMAC_INIT) */
+/* d11 register access for the few HIGH paths that need it (refused before BMAC_INIT) */
 u32 bmac_reg_read(struct bmac_core *c, u32 off, u32 size);
 void bmac_reg_write(struct bmac_core *c, u32 off, u32 v, u32 size);
 #define bmac_read32(c, off)		bmac_reg_read(c, off, 4)
@@ -102,31 +129,49 @@ void bmac_reg_write(struct bmac_core *c, u32 off, u32 v, u32 size);
 #define bmac_set16(c, off, v)		bmac_write16(c, off, bmac_read16(c, off) | (v))
 #define bmac_mask16(c, off, m)		bmac_write16(c, off, bmac_read16(c, off) & (m))
 
-/* attach-time identity (docs/split-map.md §1) */
-struct bmac_revinfo {
-	u32 vendorid, deviceid, corerev, boardrev, sromrev, chiprev, chip, chippkg;
-	u32 boardtype, boardvendor, bustype, buscoretype, buscorerev, issim, nbands;
-	struct {
-		u32 bandunit, bandtype, radiorev, phytype, phyrev, anarev, radioid, abgphy_encore;
-	} band[2];
-};
-int bmac_get_revinfo(struct bmac_core *c, struct bmac_revinfo *ri);
-int bmac_get_sprom(struct bmac_core *c, struct ssb_sprom *sprom, char *ccode);
-int bmac_get_macaddr(struct bmac_core *c, u8 *mac);
-int bmac_get_xmtfifo_sizes(struct bmac_core *c, u16 *sz, int n);
+/* attach-time identity, read once from the dongle (bmac.c) */
+int bmac_core_init(struct bmac_core *c);
 
-/* async messages from the LOW (dpc_work, process context, wl mutex held) */
+/* LOW MAC proxy entry points used by main.c (bmac.c; attach/init glue lives in main.c) */
+void brcms_b_hw_up(struct brcms_hardware *wlc_hw);
+int brcms_b_up_prep(struct brcms_hardware *wlc_hw);
+int brcms_b_up_finish(struct brcms_hardware *wlc_hw);
+int brcms_b_bmac_down_prep(struct brcms_hardware *wlc_hw);
+int brcms_b_down_finish(struct brcms_hardware *wlc_hw);
+void brcms_b_reset(struct brcms_hardware *wlc_hw);
+void brcms_b_watchdog(struct brcms_c_info *wlc);
+void brcms_b_mute(struct brcms_hardware *wlc_hw, bool mute_tx);
+void brcms_b_set_shortslot(struct brcms_hardware *wlc_hw, bool shortslot);
+void brcms_b_retrylimit_upd(struct brcms_hardware *wlc_hw, u16 SRL, u16 LRL);
+void brcms_b_antsel_set(struct brcms_hardware *wlc_hw, u32 antsel_avail);
+void brcms_b_set_addrmatch(struct brcms_hardware *wlc_hw, int match_reg_offset,
+			   const u8 *addr);
+void brcms_b_read_tsf(struct brcms_hardware *wlc_hw, u32 *tsf_l_ptr, u32 *tsf_h_ptr);
+void brcms_b_wait_for_wake(struct brcms_hardware *wlc_hw);
+bool brcms_b_radio_read_hwdisabled(struct brcms_hardware *wlc_hw);
+void brcms_b_pllreq(struct brcms_hardware *wlc_hw, bool set, u32 req_bit);
+bool brcms_deviceremoved(struct brcms_c_info *wlc);
+
+/* async messages from the LOW (dpc work, process context, wl mutex held) */
 void brcms_c_rpc_recv(struct brcms_c_info *wlc, struct sk_buff *p);
 void brcms_c_rpc_txstatus(struct brcms_c_info *wlc, const u8 *args, u32 len);
-void brcms_c_rpc_high_dpc(struct brcms_c_info *wlc, u32 macintstatus);
+/* ...handed to the HIGH code in main.c */
+struct tx_status;
+void brcms_c_recv_frame(struct brcms_c_info *wlc, struct sk_buff *p);
+void brcms_c_txstatus_one(struct brcms_c_info *wlc, struct tx_status *txs);
 
-/* emulated TX DMA rings (bmac.c) */
+/* PHY stand-ins (bmac_phy.c) */
+struct brcms_phy_pub;
+struct brcms_phy_pub *bmac_phy_attach(struct bmac_core *c, uint bandunit);
+void bmac_phy_detach(struct brcms_phy_pub *pi);
+
+/* emulated TX DMA rings (bmac_dma.c) */
 struct dma_pub *bmac_txq_attach(struct brcms_c_info *wlc, uint fifo, uint ntxd);
-void bmac_txq_detach(struct dma_pub *pub);
+void bmac_txq_complete_dropped(struct brcms_c_info *wlc);
+extern bool bmac_allow_tx;
 
 /* glue to the USB transport (mac80211_if.c) */
 int brcms_usb_attach(struct bmu_dev *bmu, struct device *dev);
 void brcms_usb_detach(struct bmu_dev *bmu);
-void brcms_usb_async(void *ctx, u32 id, const u8 *args, u32 len);
 
 #endif /* _BRCMS_BMAC_H_ */

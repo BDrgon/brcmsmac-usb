@@ -175,7 +175,7 @@ static bool brcms_c_ampdu_cap(struct ampdu_info *ampdu)
 static int brcms_c_ampdu_set(struct ampdu_info *ampdu, bool on)
 {
 	struct brcms_c_info *wlc = ampdu->wlc;
-	struct bcma_device *core = wlc->hw->d11core;
+	struct bmac_core *core = wlc->hw->d11core;
 
 	wlc->pub->_ampdu = false;
 
@@ -900,7 +900,7 @@ brcms_c_ampdu_dotxstatus_complete(struct ampdu_info *ampdu, struct scb *scb,
 		h = (struct ieee80211_hdr *)(plcp + D11_PHY_HDR_LEN);
 		seq = le16_to_cpu(h->seq_ctrl) >> SEQNUM_SHIFT;
 
-		trace_brcms_txdesc(&wlc->hw->d11core->dev, txh, sizeof(*txh));
+		trace_brcms_txdesc(wlc->hw->d11core->dev, txh, sizeof(*txh));
 
 		if (tot_mpdu == 0) {
 			mcs = plcp[0] & MIMO_PLCP_MCS_MASK;
@@ -998,22 +998,11 @@ brcms_c_ampdu_dotxstatus(struct ampdu_info *ampdu, struct scb *scb,
 	 * So if the ACK was received then wait for the second level else just
 	 * call the first one
 	 */
-	if (txs->status & TX_STATUS_ACK_RCV) {
-		u8 status_delay = 0;
-
-		/* wait till the next 8 bytes of txstatus is available */
-		s1 = bcma_read32(wlc->hw->d11core, D11REGOFFS(frmtxstatus));
-		while ((s1 & TXS_V) == 0) {
-			udelay(1);
-			status_delay++;
-			if (status_delay > 10)
-				return; /* error condition */
-			s1 = bcma_read32(wlc->hw->d11core,
-					 D11REGOFFS(frmtxstatus));
-		}
-
-		s2 = bcma_read32(wlc->hw->d11core, D11REGOFFS(frmtxstatus2));
-	}
+	/*
+	 * brcmsmac_usb: the second-level A-MPDU tx status (frmtxstatus registers) is not
+	 * available over RPC yet, so TX aggregation is disabled (mac80211_if.c) and s1/s2
+	 * stay 0 here.
+	 */
 
 	if (scb) {
 		brcms_c_ampdu_dotxstatus_complete(ampdu, scb, p, txs, s1, s2);
@@ -1024,7 +1013,7 @@ brcms_c_ampdu_dotxstatus(struct ampdu_info *ampdu, struct scb *scb,
 		u16 mcl;
 		while (p) {
 			txh = (struct d11txh *) p->data;
-			trace_brcms_txdesc(&wlc->hw->d11core->dev, txh,
+			trace_brcms_txdesc(wlc->hw->d11core->dev, txh,
 					   sizeof(*txh));
 			mcl = le16_to_cpu(txh->MacTxControlLow);
 			brcmu_pkt_buf_free_skb(p);
