@@ -213,6 +213,22 @@ sync 94, sync 96, sync 44 READ_SHM …, call 51 WRITE_SHM ×n …
 
 Our own tools reproduced the first ten calls (through `HW_ETHERADDR`) with identical replies [C].
 
+**Full replay [C, 2026-10-04].** `tools/rpcprobe` replayed the vendor driver's complete post-handshake
+sequence through `BMAC_UP_FINISH` (id 6): 279 host messages (228 one-way, 51 sync), sent one per
+transfer, arguments verbatim. 45 sync replies were byte-identical to the capture, and 6 differed only
+in the volatile classes below. The dongle's async frames during init matched the capture exactly:
+one `RESET_BMAC_DONE` (115) right after `BMAC_INIT`, then three `UPDATE_PHY_MODE` (114).
+
+| Reply | Behaviour | Treat as |
+|---|---|---|
+| 75 `REVINFO_GET` words 23–30 | scattered single-bit differences between runs; words 0–22 stable | uninitialised firmware memory past the populated fields [C] |
+| 110 `DOIOVARS`, iovar 3 (get, 4 B) | low bits differ between runs; the value isn't passed back in any later call | volatile [I] |
+| 1 `REG_READ` 0x65a | changes on every read, also within one capture | free-running counter [C] |
+| 153 | 28-byte reply; several words increase over time | statistics/counters poll [I] |
+
+Register reads after `BMAC_INIT` return the captured values where they aren't counters
+(e.g. `0x688 → 0x0f03`, `0x120 → 0xc4020403`) [C].
+
 ## 7. Data path
 
 ### 7.1 TX: `BMAC_TXFIFO` (id 61, host → dongle) [C layout, I field names]
@@ -252,9 +268,37 @@ u32 len
 …      802.11 frame (+ MIC if protected) + FCS
 ```
 
-- The header region is a constant 38 bytes across every received frame in the capture.
-- `RxChan >> 3` = channel (`0x0034` → 6).
-- Protected frames arrive **already decrypted**, with the CCMP header and MIC still present.
+- The header region is a constant 38 bytes across every received frame in the capture, and
+  `RxFrameSize == len − 38` for all 1354 captured frames [C].
+- `RxChan >> 3` = channel (`0x0034` → 6) [C].
+- Byte 28 of the header region is the RSSI in dBm (signed) [I: plausible values, tracks distance].
+- The 802.11 FCS is present and verifies on every unprotected frame; 3 300+ frames received by our
+  own tool were all FCS-valid [C].
+- Protected frames arrive **already decrypted**, with the CCMP header and MIC still present, so
+  their FCS no longer verifies.
+
+### 7.3 Receive setup [C, 2026-10-04]
+
+After `BMAC_UP_FINISH` the MAC is enabled on the `BMAC_INIT` channel. The vendor driver retunes with
+this block:
+
+```
+call 50 SUSPEND_MAC_AND_WAIT
+[call 3 MHF_SET x2]            # host flags; differ between scan steps and end-of-scan
+sync 153                       # statistics poll
+call 58 BMAC_CHANSPEC_SET      (chanspec, ..., per-channel tx power limits)
+sync 67, call 3, sync 68, sync 101   # tx power bookkeeping
+call 51 WRITE_SHM, call 42 MCTRL(0x00100000, 0x00100000), call 51, call 42 MCTRL(0x01400000, 0)
+sync 45 READ_TSF
+call 41 ENABLE_MAC
+```
+
+- `MCTRL(mask, value)` writes the d11 MAC control register. Bit `0x00100000` is
+  `MCTL_BCNS_PROMISC` in brcmsmac's `d11.h`: accept beacons from any BSS. **Without it, beacons from
+  other networks are filtered**, and only broadcast probe requests come through [C].
+- The vendor driver's *last* retune of a scan (back to its home channel) clears that bit again
+  (`MCTRL(0x00100000, 0)`), so a receive-only listener must set it after retuning [C].
+- During reception the dongle also sends `HIGH_DPC` (83) every few seconds [C].
 
 ## 8. Hazards and recovery [C]
 
@@ -267,7 +311,8 @@ u32 len
 ## 9. Open questions
 
 - Word 3 of the vendor driver's HELLO message; arbitrary values work.
-- ids 153, 157 and 161; ids 62–64.
+- ids 157 and 161; ids 62–64. id 153 behaves like a statistics poll, which doesn't match the name the
+  5.75 enum gives index 152 (`SET_UCODE_LOADED`): evidence that the +1 rule may break above id 152.
 - Exact semantics of the TXFIFO header words 2–5, and the trailing 14 B of the RX header.
 - Key install: confirm that id 40's 16-byte payloads are the TK/GTK by deriving the PTK from a
   capture with a known passphrase (PLAN phase 7).

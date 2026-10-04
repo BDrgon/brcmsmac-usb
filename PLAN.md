@@ -12,8 +12,8 @@ found it, and updates the status board below.
 | Phase | Name | State | Gate |
 |---|---|---|---|
 | 0 | Reconnaissance | ✅ done | firmware extracted, protocol identified, capture decoded |
-| 1 | Repo & toolchain | 🟡 G1 met except chunk 2 (blocked) | G1 |
-| 2 | Userspace reference driver (`rpcprobe`) | ⏳ next | G2a RX, G2b TX |
+| 1 | Repo & toolchain | ✅ done (chunk 2 deferred to Phase 9, D8) | G1 |
+| 2 | Userspace reference driver (`rpcprobe`) | 🟡 2.1–2.3 done, **G2a passed**; 2.4–2.6 next | G2a RX ✅, G2b TX |
 | 3 | Kernel transport module | ⏳ | G3 |
 | 4 | brcmsmac fork + RPC stub layer | ⏳ | G4 |
 | 5 | RX path + monitor mode | ⏳ | G5 |
@@ -24,6 +24,7 @@ found it, and updates the status board below.
 
 **Chunk log** (newest first; one line per chunk, with what changed and where the notes are):
 
+- 2026-10-04 · phase 2.1–2.3 · `tools/rpcprobe` library (transport/agg, session, sync, async reader, XDR, rx parser, JSONL trace, replay engine, CLI) + 11 unit tests on sanitised fixtures (`tests/`); `tools/seqextract.py`, `tools/mkfixtures.py`. **Init replay** of the vendor sequence (279 calls through HW_UP → BMAC_INIT → UP_FINISH) completes on hardware: 45/51 sync replies byte-identical, 6 in documented volatile classes, async frames identical to the capture. **G2a RX passed** (23 BSSs on ch 1/6/11, 1884 frames all FCS-valid, RxChan = DS IE for 23/23). Notes in `docs/protocol.md` §6, §7.2, §8.
 - 2026-10-04 · phase 1 · git repo with local commits; tools promoted to `tools/` (neutral message-kind labels, `rpcids.py`, `usbrecover.py`); clean-room `docs/protocol.md`; `scripts/build.sh` (pi via Docker, native, x86) + `scripts/deploy.sh` verified with `driver/hello` on the Pi; recovery findings in `docs/recovery.md` (hard hang needs a physical replug on the Pi B+; firmware can also self-reboot). Chunk 2 (firmware extraction tool) **blocked**, awaiting a user decision.
 - 2026-10-04 · scaffolding · SPEC/PLAN written; repo skeleton, `.gitignore`, `config/local.env.example`.
 - 2026-10-04 · milestone 2 · read-only RPC calls pass on Pi (`work/tools/m2.py`); REG_READ before BMAC_INIT hangs the dongle.
@@ -77,9 +78,8 @@ firmware, captures, vendor files or local config.
 
 **G1 status (2026-10-04):** ✅ cross-built (`scripts/build.sh pi`) and native hello modules each
 loaded/unloaded twice via `deploy.sh`; x86 compile check passes; `git status --ignored` clean.
-❌ **Chunk 2 is blocked:** a firmware extraction tool was not written in this chunk. Until the user
-decides how to handle this item, firmware for development comes from the private `work/` area, and
-the "fresh user" README path in Phase 9 depends on that decision.
+⏸ **Chunk 2 deferred to Phase 9** by user decision (D8): no extraction tool yet; development uses
+the firmware in the private `work/` area. How users obtain firmware is decided at release time.
 
 ## Phase 2 — Userspace reference driver (`tools/rpcprobe`)
 
@@ -102,6 +102,12 @@ Chunks:
 **Gate G2a:** at least 3 known APs are seen with the correct SSID and channel, and RSSI is within
 ±10 dB of another device. **Gate G2b:** a probe response to our MAC is received, and the tx status
 reports an ACK.
+
+**Phase 2 status (2026-10-04):**
+- 2.1 ✅ library + CLI (`python3 -m rpcprobe info|probe|up|rx|sync|call`), unit tests pass (`python3 -m unittest discover -s tests`).
+- 2.2 ✅ init replay clean: 279 calls, 0 unexplained divergences. Volatile classes found and documented: REVINFO words 23–30 (uninitialised SRAM tail), DOIOVARS iovar 3, REG_READ 0x65a counter, id 153 stats. No register access before BMAC_INIT (guarded).
+- 2.3 ✅ **G2a passed**: 23 BSSs on ch 1/6/11 in 30 s; every DS-channel IE within the tuned channel and equal to RxChan; 3 SSID+channel matches with the Mac's scan; RSSI vs the same dongle on the Windows PC within ±10 dB for 16/19 BSSIDs (different locations — RSSI parity is approximate). Needed one deviation from the capture: re-assert `MCTRL` `MCTL_BCNS_PROMISC` after each retune, because the vendor's last scan block (our ch 11 block) clears it at end-of-scan.
+- Next: 2.4–2.5 TX (probe request via TXFIFO, DOTXSTATUS, G2b), then 2.6 unknown ids (153 looks like a stats/counters poll; 157 is a one-way call after UP_FINISH; 161 sync during early init returns 1).
 
 ## Phase 3 — Kernel transport module
 
@@ -183,6 +189,8 @@ LICENSE, `docs/decisions.md`, a sanitised-fixtures audit, and an x86_64 verifica
 | D5 | **Clean-room** from proprietary router sources | Licence (SPEC §6) | — |
 | D6 | Firmware filename `brcm/bcm4322-bmac-<version>.trx`; version table in the driver | Lets several firmware versions coexist; explicit | — |
 | D7 | Local setup in `config/local.env` (gitignored) | Shareability | — |
+| D8 | **Firmware distribution deferred to Phase 9** (user decision 2026-10-04); development uses `work/` firmware | Doesn't block Phases 2–8; decide with the full picture at release | user decides earlier |
+| D9 | Userspace replay is **data-driven from private captures** (`seqextract` → `work/seq/`); only extractors and sanitised fixtures are committed | Keeps vendor-derived sequences private; the kernel driver must instead generate calls from brcmsmac logic (Phase 4) | — |
 
 ## Risks
 
@@ -193,7 +201,8 @@ LICENSE, `docs/decisions.md`, a sanitised-fixtures audit, and an x86_64 verifica
 | RPC ID mapping drift beyond ID 152 | medium | medium | experiments in Phase 2.6; more captures |
 | Key-install semantics wrong (WPA2) | medium | high | capture-based PTK verification before Phase 7 |
 | Pi 1 CPU too slow (RPC per frame) | medium | low | throughput isn't a goal; x86 box for dev speed |
-| Pi PSU undervoltage with radio active | medium | medium | monitor `get_throttled`; powered hub; better PSU |
+| Pi PSU undervoltage with radio active | **observed** (dmesg undervoltage events during Phase 2 RX sessions and at plug-in) | medium | monitor `get_throttled`; powered hub; better PSU |
+| Captured blocks encode vendor *state machine* context (e.g. end-of-scan clears beacon-promisc) | medium | medium | treat captured blocks as references, not recipes; Phase 4 drives calls from brcmsmac state |
 | Hidden firmware expectations (watchdogs, keepalives) | medium | medium | look for periodic RPCs in the idle portion of the capture; replicate them |
 | Legal (firmware/RE) | low | high | SPEC §6 policy; users supply vendor files |
 

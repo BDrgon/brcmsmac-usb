@@ -39,4 +39,26 @@ sudo python3 tools/rpcprobe/m2.py --fw <firmware.trx>
 sudo python3 tools/usbrecover.py status
 ```
 
+### rpcprobe (Phase 2 reference driver)
+
+Run from the `tools/` directory on the target (`python3 -m rpcprobe --help`):
+
+```
+sudo python3 -m rpcprobe info                                  # boot ROM or firmware running?
+sudo python3 -m rpcprobe --fw FW.trx --trace T.jsonl probe     # download + identity calls
+sudo python3 -m rpcprobe --trace T.jsonl up --seq SEQ.jsonl    # replay init through UP_FINISH
+sudo python3 -m rpcprobe --trace T.jsonl rx --no-up --seq SEQ.jsonl \
+     --chanblocks BLK.json --chan 6 --chan 1 --seconds 10     # retune + list beacons (receive only)
+```
+
+`SEQ.jsonl` / `BLK.json` come from your own capture of the vendor driver (see `docs/protocol.md`):
+
+```
+python3 tools/seqextract.py CAPTURE.pcap DEV -o work/seq/up.jsonl            # init sequence
+python3 tools/seqextract.py CAPTURE.pcap DEV --chanblocks work/seq/blk.json  # retune blocks
+```
+
+These files, and traces, contain device data (MACs, SSIDs, NVRAM): keep them in `work/`.
+Unit tests (no hardware): `python3 -m unittest discover -s tests -v`.
+
 Firmware is never part of this repository; see SPEC §6.
