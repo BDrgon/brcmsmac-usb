@@ -39,7 +39,7 @@ def rpcs(path, dev, start=None):
             if ch == 'bulk03' and len(buf) == 20 and buf[:4] == b'\x10\0\0\0' and buf[7] == 3: started = True
             else: continue
         for st, f in frames(buf):
-            rec = dict(t=r['t'], ch=ch, dir=d, raw=f, ok=st == 'OK', xferlen=len(buf))
+            rec = dict(t=r['t'], ch=ch, dir=d, raw=f, ok=st == 'OK', xferlen=len(buf), rec=r['i'])
             if st == 'OK' and len(f) >= 4:
                 h = struct.unpack_from('<I', f)[0]
                 rec.update(type=TYPES.get(h >> 24, h >> 24), session=(h >> 16) & 0xff, xid=h & 0xffff, body=f[4:])
