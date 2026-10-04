@@ -307,6 +307,19 @@ u32 len
   own tool were all FCS-valid [C].
 - Protected frames arrive **already decrypted**, with the CCMP header and MIC still present, so
   their FCS no longer verifies.
+- **Header bytes 24–27 = TSF low word** (u32 LE) at reception, i.e. the staging driver's
+  `wlc_d11rxhdr.tsf_l`. Its low 16 bits trail `RxTSFTime` (start of frame) by tens of µs
+  (e.g. `RxTSFTime 0xdf36`, `tsf_l 0x01dcdf5a`). A host only needs the TSF high word (READ_TSF)
+  to build a 64-bit timestamp, not a READ_TSF per frame [C, 2026-10-04].
+- `RxStatus2` bit 8 (`RXS_PHYRXST_VALID`) is set on normal frames (`RxStatus2 0x0106`); without it
+  the RSSI byte is 0 (brcmsmac's `BRCMS_RSSI_INVALID`). Seen on 1 of ~1650 frames [C].
+- **Occasional foreign-channel frames:** a small fraction of frames are received while the radio is
+  briefly on another channel, yet carry the tuned channel in `RxChan`. Tuned to ch 11 for 60 s:
+  3–7 of ~800 beacons had DS IE 6 or 1, at the same RSSI as on their home channel (so not
+  adjacent-channel leakage). The host sent no retune meanwhile, and `rpcprobe` running the vendor's
+  complete init sequence sees the same thing (3 such beacons in 60 s on ch 11), so it is firmware
+  behaviour, possibly interference-mitigation scanning. Not seen while tuned to busy ch 6. A
+  one-off `INTERFER_SET` (141) `(1)` made no clear difference [C, cause I].
 
 ### 7.4 TX status: `DOTXSTATUS` (id 82, dongle → host) [C layout of words 1–3]
 
@@ -374,3 +387,5 @@ call 41 ENABLE_MAC
 - Key install: confirm that id 40's 16-byte payloads are the TK/GTK by deriving the PTK from a
   capture with a known passphrase (PLAN phase 7).
 - Periodic/keepalive calls the firmware may require (ids 45 READ_TSF and 153 are polled).
+- What briefly takes the radio off-channel (§7.2, foreign-channel frames); id 140's arguments
+  `(11, 0, 1, 0)` in the vendor init.

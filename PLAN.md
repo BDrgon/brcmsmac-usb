@@ -16,13 +16,15 @@ found it, and updates the status board below.
 | 2 | Userspace reference driver (`rpcprobe`) | ✅ done (id 161 still unnamed) | G2a RX ✅, G2b TX ✅ |
 | 3 | Kernel transport module | ✅ done (hard-hang reset untested) | G3 ✅ |
 | 4 | brcmsmac fork + RPC stub layer | ✅ done on x86; Pi cross-build OK, not run there | G4 ✅ (x86) |
-| 5 | RX path + monitor mode | ⏳ | G5 |
+| 5 | RX path + monitor mode | ✅ done on x86 | G5 ✅ (x86) |
 | 6 | TX path + scan + open association | ⏳ | G6 |
 | 7 | WPA2 + real-network use | ⏳ | G7 |
 | 8 | Robustness & soak | ⏳ | G8 |
 | 9 | Packaging & release | ⏳ | G9 = SPEC §9 |
 
 **Chunk log** (newest first; one line per chunk, with what changed and where the notes are):
+
+- 2026-10-04 · phase 5 (branch `phase5`) · Monitor mode and passive scan already worked on the G4 code; changes: receive timestamps from the rx header's TSF low word (byte 24) plus a cached READ_TSF high word instead of one synchronous READ_TSF per frame (~200/s → 3 per 20 s capture); frames without `RXS_PHYRXST_VALID` reported with `RX_FLAG_NO_SIGNAL_VAL`; FCS/PLCP error logging to debug level. New `tools/pcapsum.py`, `tests/hw/monitor.sh`. **G5 passed** (evidence under Phase 5). Firmware quirk documented (protocol.md §7.2): rare frames received off-channel but labelled with the tuned channel; the vendor init sequence (via rpcprobe) shows the same. Dev box: `tcpdump`, `dhcpcd` installed (pacman, deps already present; dhcpcd service not enabled).
 
 - 2026-10-04 · phase 4 follow-ups (branch `phase4`) · SSH access back. **Bug fixed:** `rmmod` with the interface UP made DOWN_PREP/PHY_MUTE_UPD/DOWN_FINISH fail with -ENOENT, because without `soft_unbind` usbcore disables the endpoints before `disconnect()`; now `.soft_unbind = 1`. `tests/hw/cycle.sh` (load → up/down/up → unload while UP) 20/20 and 20/20 again; `IFUP=1 tests/hw/replug.sh 20 1` 20/20 software replugs with the interface UP plus 1/1 fault-injected reset while UP; 0 sync errors/timeouts, 0 rpc failures logged, no oops/WARN/hung task. Slab: kmalloc-* flat; skbuff caches grow ~10 objects/cycle, traced to `gvfsd-metadata` holding an unread NETLINK_KOBJECT_UEVENT socket (3 MB queued; a synthetic uevent grows it by 960 B), i.e. uevent skbs, not the driver. `scripts/build.sh pi driver` builds warning-free (armv6, 156 KB); not loaded on the Pi. `scripts/dev.sh` now multiplexes SSH (rapid reconnects were refused by sshd). Dev box: a runtime-only udev rule in /run keeps our interfaces NM-unmanaged across reloads.
 
@@ -174,6 +176,23 @@ Chunks:
 
 **Gate G5:** in monitor mode on a fixed channel, `tcpdump` shows beacons and data frames with
 correct radiotap channel and signal. Passive `iw scan` works.
+
+**G5 status (2026-10-04, x86 dev box):** ✅
+- `iw phy <phy> interface add bmon0 type monitor`, station interface down, `iw dev bmon0 set channel 6`,
+  `tests/hw/monitor.sh 6 20`: 3899 frames in 20 s (beacons 1406, data 165 incl. QoS/null, probe
+  responses, action, RTS/CTS/ACK/block-ack); radiotap 2437 MHz on 3899/3899; DS IE = radiotap channel
+  for 1406/1406 beacons; signal −84…−27 dBm on every frame; TSFT monotonic; 3 sync RPCs during the
+  capture. Ch 1 (1653 frames) and ch 11 (184) likewise, except the rare off-channel frames noted in
+  protocol.md §7.2 (ch 11: 2 of 113 beacons; same with the vendor sequence).
+- **Oracle:** `rpcprobe rx --chan 6` (vendor init replay, same dongle, right after) sees the same BSS set
+  (8 of its 9; the 9th is a weak one); per-BSS mean signal ours − rpcprobe: mean +1.0 dB, max |Δ| 1.7 dB
+  (8/8 within ±10 dB). rpcprobe's RSSI was itself checked against the Windows driver in G2a.
+- With `MONFLAGS="fcsfail control otherbss"`: bad-FCS frames delivered and flagged (155 in 20 s), no
+  log flood.
+- Passive scan: `iw dev <if> scan passive` 1.5 s, 13–22 BSSs over 5 runs on ch 1/6/9/11, frequency
+  = DS channel for every result; ~45 one-way RPCs per scan.
+- No oops/WARN/hung task. Independent receiver comparison not possible on the box: its `wl` driver
+  only reports the associated (5 GHz) BSS in `iw scan dump`, and scanning the uplink was avoided.
 
 ## Phase 6 — TX path + scan + open association
 
