@@ -444,14 +444,69 @@ void brcms_b_retrylimit_upd(struct brcms_hardware *wlc_hw, u16 SRL, u16 LRL)
 	}
 }
 
-void brcms_b_read_tsf(struct brcms_hardware *wlc_hw, u32 *tsf_l_ptr, u32 *tsf_h_ptr)
+static int bmac_read_tsf(struct bmac_core *c, u32 *tsf_l, u32 *tsf_h)
 {
 	__le32 r[2] = { };
 	u32 len = 0;
+	int ret;
 
-	bmac_sync(hwcore(wlc_hw), BRPC_READ_TSF, r, sizeof(r), &len, 0);
-	*tsf_l_ptr = le32_to_cpu(r[0]);
-	*tsf_h_ptr = le32_to_cpu(r[1]);
+	ret = bmac_sync(c, BRPC_READ_TSF, r, sizeof(r), &len, 0);
+	if (!ret && len < sizeof(r))
+		ret = -EPROTO;
+	*tsf_l = le32_to_cpu(r[0]);
+	*tsf_h = le32_to_cpu(r[1]);
+	if (!ret) {
+		c->tsf_l = *tsf_l;
+		c->tsf_h = *tsf_h;
+		c->tsf_read_at = jiffies;
+		c->tsf_valid = true;
+	}
+	return ret;
+}
+
+void brcms_b_read_tsf(struct brcms_hardware *wlc_hw, u32 *tsf_l_ptr, u32 *tsf_h_ptr)
+{
+	bmac_read_tsf(hwcore(wlc_hw), tsf_l_ptr, tsf_h_ptr);
+}
+
+/* the TSF may have been reset or rewritten (BMAC_INIT, tsf_set): re-read before trusting it */
+void bmac_tsf_invalidate(struct bmac_core *c)
+{
+	c->tsf_valid = false;
+}
+
+/*
+ * brcmsmac reads the TSF registers for every received frame to extend the 16-bit RxTSFTime.
+ * Over RPC that is one synchronous READ_TSF per frame. The LOW already puts the TSF low word,
+ * taken when the frame was received, at byte 24 of the receive header (staging
+ * wlc_d11rxhdr.tsf_l; checked against RxTSFTime on hardware), so only the high word is needed:
+ * it comes from a cached READ_TSF, refreshed every 10 s. tsf_l wraps every ~71 min, so a low
+ * word below the cached one means one wrap since that read.
+ */
+#define BMAC_TSF_REFRESH	(10 * HZ)
+
+u64 bmac_rx_tsf64(struct bmac_core *c, const struct d11rxhdr *rxh)
+{
+	u32 rx_l = get_unaligned_le32((const u8 *)rxh + 24);
+	u16 rx_0_15 = rxh->RxTSFTime;
+	u32 l, h;
+
+	if (!c->tsf_valid || time_after(jiffies, c->tsf_read_at + BMAC_TSF_REFRESH))
+		bmac_read_tsf(c, &l, &h);
+	h = c->tsf_h;
+	if (rx_l < c->tsf_l && c->tsf_l - rx_l > 0x80000000u)
+		h++;			/* tsf_l wrapped after our read */
+	else if (rx_l > c->tsf_l && rx_l - c->tsf_l > 0x80000000u)
+		h--;			/* frame received before a read that followed a wrap */
+
+	/* RxTSFTime is the start of the frame; tsf_l may be a little later */
+	l = (rx_l & 0xffff0000) | rx_0_15;
+	if ((u16)rx_l < rx_0_15) {
+		if (l < 0x10000)
+			h--;
+		l -= 0x10000;
+	}
+	return (u64)h << 32 | l;
 }
 
 /* ------------------------------------------------------------------------------------------ */
@@ -588,6 +643,7 @@ int brcms_b_bmac_down_prep(struct brcms_hardware *wlc_hw)
 
 void brcms_b_reset(struct brcms_hardware *wlc_hw)
 {
+	bmac_tsf_invalidate(hwcore(wlc_hw));
 	bmac_call(hwcore(wlc_hw), BRPC_BMAC_RESET, 0);
 }
 

@@ -1179,6 +1179,7 @@ static void brcms_b_init(struct brcms_hardware *wlc_hw, u16 chanspec)
 	wlc_hw->d11core->chanspec = chanspec;
 	/* mute argument as the vendor driver sends it; muting is done on the host */
 	bmac_call(wlc_hw->d11core, BRPC_BMAC_INIT, 2, chanspec, 0);
+	bmac_tsf_invalidate(wlc_hw->d11core);
 	brcms_intrsrestore(wlc->wl, macintmask);
 
 	/* the ucode starts suspended; brcms_c_enable_mac() at the end of brcms_c_init() */
@@ -4155,25 +4156,8 @@ static void brcms_c_bcn_li_upd(struct brcms_c_info *wlc)
 static u64 brcms_c_recover_tsf64(struct brcms_c_info *wlc,
 				 struct d11rxhdr *rxh)
 {
-	u32 tsf_h, tsf_l;
-	u16 rx_tsf_0_15, rx_tsf_16_31;
-
-	brcms_b_read_tsf(wlc->hw, &tsf_l, &tsf_h);
-
-	rx_tsf_16_31 = (u16)(tsf_l >> 16);
-	rx_tsf_0_15 = rxh->RxTSFTime;
-
-	/*
-	 * a greater tsf time indicates the low 16 bits of
-	 * tsf_l wrapped, so decrement the high 16 bits.
-	 */
-	if ((u16)tsf_l < rx_tsf_0_15) {
-		rx_tsf_16_31 -= 1;
-		if (rx_tsf_16_31 == 0xffff)
-			tsf_h -= 1;
-	}
-
-	return ((u64)tsf_h << 32) | (((u32)rx_tsf_16_31 << 16) + rx_tsf_0_15);
+	/* brcmsmac_usb: from the receive header's tsf_l, without an RPC per frame (bmac.c) */
+	return bmac_rx_tsf64(wlc->hw->d11core, rxh);
 }
 
 static void
@@ -4747,6 +4731,7 @@ void brcms_c_tsf_set(struct brcms_c_info *wlc, u64 tsf)
 	/* read the tsf timer low, then high to get an atomic read */
 	bmac_write32(wlc->hw->d11core, D11REGOFFS(tsf_timerlow), tsf_l);
 	bmac_write32(wlc->hw->d11core, D11REGOFFS(tsf_timerhigh), tsf_h);
+	bmac_tsf_invalidate(wlc->hw->d11core);
 
 	brcms_c_time_unlock(wlc);
 }

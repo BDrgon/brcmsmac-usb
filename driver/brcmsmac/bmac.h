@@ -109,6 +109,11 @@ struct bmac_core {
 	u16 chanspec;			/* last chanspec sent to the LOW */
 	bool txpwr_hw_ctrl;
 	u16 srl, lrl;			/* retry limits the LOW is using */
+
+	/* TSF cache for receive timestamps (bmac_rx_tsf64) */
+	bool tsf_valid;
+	u32 tsf_h, tsf_l;		/* last READ_TSF reply */
+	unsigned long tsf_read_at;	/* jiffies */
 };
 
 /* rpc helpers (process context; the wl mutex is held by callers) */
@@ -151,6 +156,11 @@ void brcms_b_wait_for_wake(struct brcms_hardware *wlc_hw);
 bool brcms_b_radio_read_hwdisabled(struct brcms_hardware *wlc_hw);
 void brcms_b_pllreq(struct brcms_hardware *wlc_hw, bool set, u32 req_bit);
 bool brcms_deviceremoved(struct brcms_c_info *wlc);
+
+/* 64-bit TSF of a received frame, from its receive header (no RPC per frame) */
+struct d11rxhdr;
+u64 bmac_rx_tsf64(struct bmac_core *c, const struct d11rxhdr *rxh);
+void bmac_tsf_invalidate(struct bmac_core *c);
 
 /* async messages from the LOW (dpc work, process context, wl mutex held) */
 void brcms_c_rpc_recv(struct brcms_c_info *wlc, struct sk_buff *p);
