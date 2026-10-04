@@ -17,7 +17,9 @@ MOD=brcmsmac_usb
 
 sync_repo() {
 	rsync -a --delete --exclude work/ --exclude config/local.env --exclude .git/ \
-		--exclude build/ --exclude '__pycache__/' "$ROOT/" "$DEV_SSH:$DEV_WORKDIR/"
+		--exclude build/ --exclude '__pycache__/' \
+		--exclude '*.ko' --exclude '*.o' --exclude '*.mod' --exclude '*.mod.c' --exclude '.*.cmd' \
+		--exclude Module.symvers --exclude modules.order --exclude .tmp_versions/ "$ROOT/" "$DEV_SSH:$DEV_WORKDIR/"
 }
 build() { sync_repo; dssh "make -C '$DEV_WORKDIR/driver' -j2 2>&1 | grep -E 'warning|error|Error' || true; ls -la '$DEV_WORKDIR/driver/$MOD.ko'"; }
 mark() { local m="dev-$MOD-$(date +%s)"; dssh "echo '$m' | sudo tee /dev/kmsg >/dev/null"; echo "$m"; }

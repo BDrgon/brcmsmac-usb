@@ -14,7 +14,7 @@ found it, and updates the status board below.
 | 0 | Reconnaissance | ✅ done | firmware extracted, protocol identified, capture decoded |
 | 1 | Repo & toolchain | ✅ done (chunk 2 deferred to Phase 9, D8) | G1 |
 | 2 | Userspace reference driver (`rpcprobe`) | ✅ done (id 161 still unnamed) | G2a RX ✅, G2b TX ✅ |
-| 3 | Kernel transport module | ⏳ next | G3 |
+| 3 | Kernel transport module | ✅ done (hard-hang reset untested) | G3 ✅ |
 | 4 | brcmsmac fork + RPC stub layer | ⏳ | G4 |
 | 5 | RX path + monitor mode | ⏳ | G5 |
 | 6 | TX path + scan + open association | ⏳ | G6 |
@@ -23,6 +23,8 @@ found it, and updates the status board below.
 | 9 | Packaging & release | ⏳ | G9 = SPEC §9 |
 
 **Chunk log** (newest first; one line per chunk, with what changed and where the notes are):
+
+- 2026-10-04 · phase 3 · `driver/` `brcmsmac_usb.ko` (bmu_usb.c, bmu_rpc.c, bmu_debugfs.c): probe/disconnect, ROM-vs-running detection, RDL download via `request_firmware`, HELLO/CONNECT with the firmware version table, atomic-safe one-way calls, serialised sync calls (reply via request 9), bulk-IN URB pool with deaggregation and dispatch, debugfs (state/stats/trace/rpc/fault), register-access guard before BMAC_INIT, hang detection → port reset (≤3 per 10 min). Dev box (D11) loop `scripts/dev.sh`. **G3 passed** on x86: identity logged (chip 0x4322, fifos, NVRAM `manfid=0x846…`, MAC); 50/50 reloads (all reconnect to running firmware), 50/50 software replugs (sysfs `authorized`), 3/3 fault-injected reset recoveries; no oops/WARN/hung task, slab flat. Pi: armv6 cross-build loads/unloads (dongle not attached there). Physical replug cycles not automated (needs a human); real hard-hang reset untested (see docs/recovery.md).
 
 - 2026-10-04 · phase 2.4–2.6 · `tools/rpcprobe/tx.py` (d11txh/PLCP/probe builders, tx status parser; reproduce the vendor's captured probe, auth and assoc-request headers byte for byte) + `tx` CLI command + 11 unit tests (`tests/test_tx.py`). **G2b TX passed** on ch 6: 2 broadcast + 2 directed probes, all tx statuses back in 5–6 ms, both unicast probes ACKed, 8 probe responses to our MAC from 3 APs. TXFIFO layout corrected (6 arg words + len); DOTXSTATUS fields decoded (frameid/status/sequence, brcmsmac TX_STATUS_* bits). IDs: 157 = PHY_LDPC_SET (position in every bring-up), 153 = CCA_STATS_READ, 154 = ANTSEL_SET [I]; +1 rule confirmed only up to 142; 161 unnamed (returns 1). `tools/rpcids.py` overrides. Power (unpowered USB-C hub port): undervoltage episodes 08:09:36–46 (spanning the whole TX window) and 08:11:47–51 (radio idle on channel, no host activity); no hang or disconnect, results unaffected. Notes in `docs/protocol.md` §5, §7.1, §7.4.
 - 2026-10-04 · phase 2.1–2.3 · `tools/rpcprobe` library (transport/agg, session, sync, async reader, XDR, rx parser, JSONL trace, replay engine, CLI) + 11 unit tests on sanitised fixtures (`tests/`); `tools/seqextract.py`, `tools/mkfixtures.py`. **Init replay** of the vendor sequence (279 calls through HW_UP → BMAC_INIT → UP_FINISH) completes on hardware: 45/51 sync replies byte-identical, 6 in documented volatile classes, async frames identical to the capture. **G2a RX passed** (23 BSSs on ch 1/6/11, 1884 frames all FCS-valid, RxChan = DS IE for 23/23). Notes in `docs/protocol.md` §6, §7.2, §8.

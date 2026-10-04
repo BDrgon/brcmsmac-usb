@@ -19,6 +19,34 @@ scripts/build.sh x86    [MODULE_DIR]   # compile check against Debian's amd64 he
 
 Output: `build/<mode>/*.ko` (gitignored). `MODULE_DIR` defaults to `driver/hello` (toolchain smoke test).
 
+## x86 dev box (kernel module work)
+
+`config/local.env` sets `DEV_SSH` and `DEV_WORKDIR`. The dev box builds natively against its own
+running kernel (`/lib/modules/$(uname -r)/build`):
+
+```
+scripts/dev.sh build             # rsync repo (no work/, no local.env) + make in driver/
+scripts/dev.sh load [PARAMS]     # build, reload brcmsmac_usb, print new kernel log lines
+scripts/dev.sh unload
+scripts/dev.sh ssh CMD           # run a command there
+```
+
+The driver needs the firmware at `/lib/firmware/brcm/bcm4322-bmac-5.100.148.5.trx` (copy your own
+extracted image there; dev-only install).
+
+debugfs (`/sys/kernel/debug/brcmsmac_usb-<intf>/`, root only):
+
+| File | Use |
+|---|---|
+| `state` | session state, firmware, chip, MAC, NVRAM head, whether BMAC_INIT was sent |
+| `stats` | message/byte/error counters, async messages per rpc id |
+| `trace` | last 256 messages (`O` out, `I` bulk in, `R` sync reply) with the first 32 bytes |
+| `rpc` | `echo "sync 76" > rpc; cat rpc` — raw calls (`sync|call ID [u32 ARGS...]`) |
+| `fault` | `echo hang > fault` — simulate a hung dongle (exercises reset recovery) |
+
+Hardware tests (run on the dev box from `DEV_WORKDIR`): `tests/hw/reload.sh [N]`,
+`tests/hw/replug.sh [N] [R]` (software replug via sysfs `authorized`, then R reset recoveries).
+
 ## Deploy
 
 ```
