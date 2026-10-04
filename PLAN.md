@@ -15,7 +15,7 @@ found it, and updates the status board below.
 | 1 | Repo & toolchain | ✅ done (chunk 2 deferred to Phase 9, D8) | G1 |
 | 2 | Userspace reference driver (`rpcprobe`) | ✅ done (id 161 still unnamed) | G2a RX ✅, G2b TX ✅ |
 | 3 | Kernel transport module | ✅ done (hard-hang reset untested) | G3 ✅ |
-| 4 | brcmsmac fork + RPC stub layer | ⏳ | G4 |
+| 4 | brcmsmac fork + RPC stub layer | 🚧 in progress (4.1, 4.2 done; 4.3 stopped) | G4 |
 | 5 | RX path + monitor mode | ⏳ | G5 |
 | 6 | TX path + scan + open association | ⏳ | G6 |
 | 7 | WPA2 + real-network use | ⏳ | G7 |
@@ -23,6 +23,8 @@ found it, and updates the status board below.
 | 9 | Packaging & release | ⏳ | G9 = SPEC §9 |
 
 **Chunk log** (newest first; one line per chunk, with what changed and where the notes are):
+
+- 2026-10-04 · phase 4.1–4.3 (partial, branch `phase4`) · 4.1: brcmsmac/include/brcmutil imported pristine from Linux 6.18.53 (`driver/UPSTREAM`). 4.2: `docs/split-map.md` (LOW API → RPC map, REVINFO order, SHM map match, 38-B rx header, 3×52-B power limits). 4.3 WIP: `driver/brcmsmac/bmac.h` (LOW-proxy interface), `tools/dev/cutfuncs.py`, `main.c` with LOW internals removed (8065 → 5043 lines; does **not** build yet). **Stopped**: writing `driver/brcmsmac/bmac.c` (the RPC-backed `brcms_b_*` implementation) was halted by an automated safety check in the agent tooling; needs a decision in the main session on how to proceed. G4 not reached.
 
 - 2026-10-04 · phase 3 · `driver/` `brcmsmac_usb.ko` (bmu_usb.c, bmu_rpc.c, bmu_debugfs.c): probe/disconnect, ROM-vs-running detection, RDL download via `request_firmware`, HELLO/CONNECT with the firmware version table, atomic-safe one-way calls, serialised sync calls (reply via request 9), bulk-IN URB pool with deaggregation and dispatch, debugfs (state/stats/trace/rpc/fault), register-access guard before BMAC_INIT, hang detection → port reset (≤3 per 10 min). Dev box (D11) loop `scripts/dev.sh`. **G3 passed** on x86: identity logged (chip 0x4322, fifos, NVRAM `manfid=0x846…`, MAC); 50/50 reloads (all reconnect to running firmware), 50/50 software replugs (sysfs `authorized`), 3/3 fault-injected reset recoveries; no oops/WARN/hung task, slab flat. Pi: armv6 cross-build loads/unloads (dongle not attached there). Physical replug cycles not automated (needs a human); real hard-hang reset untested (see docs/recovery.md).
 
