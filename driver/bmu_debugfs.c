@@ -24,7 +24,8 @@ static int bmu_state_show(struct seq_file *s, void *unused)
 	seq_printf(s, "firmware:   %s (0x%08x) %s\n", d->fw->version, d->fw->verword, d->fw->file);
 	seq_printf(s, "session:    0x%02x  seq %u%s\n", d->session, d->seq,
 		   d->reconnected ? "  (reconnected)" : "");
-	seq_printf(s, "bmac_init:  %s\n", d->bmac_init_sent ? "sent" : "not sent (register access refused)");
+	seq_printf(s, "bmac_init:  %s\n",
+		   d->bmac_init_sent ? "sent" : "not sent or core down (register access refused)");
 	seq_printf(s, "chip:       0x%04x\n",
 		   d->revinfo_len >= 28 ? get_unaligned_le32(d->revinfo + 24) : 0);
 	seq_printf(s, "mac:        %pM\n", d->macaddr);

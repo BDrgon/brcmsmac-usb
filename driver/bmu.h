@@ -63,6 +63,7 @@
 /* rpc ids used by the transport core itself (firmware 5.100.148.5 numbering) */
 #define BMU_ID_REG_READ		1
 #define BMU_ID_REG_WRITE	2
+#define BMU_ID_DOWN_FINISH	8
 #define BMU_ID_BMAC_INIT	18
 #define BMU_ID_COPYFROM_OBJMEM	39
 #define BMU_ID_COPYTO_OBJMEM	40
@@ -138,7 +139,7 @@ struct bmu_dev {
 	u8 session;
 	u16 seq;
 	bool reconnected;
-	bool bmac_init_sent;		/* register access allowed only after BMAC_INIT */
+	bool bmac_init_sent;		/* BMAC_INIT sent, no DOWN_FINISH since */
 
 	/* MGMT replies arrive on bulk IN */
 	struct completion mgmt_done;

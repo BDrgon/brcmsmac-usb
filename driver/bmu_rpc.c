@@ -159,14 +159,19 @@ int bmu_connect(struct bmu_dev *d)
 /* host → dongle calls */
 
 /*
- * Register/shared-memory access before BMAC_INIT hangs the whole dongle (docs/protocol.md §8),
- * which on some hosts only a replug fixes. Refuse it outright.
+ * Register/shared-memory access while the d11 core is not initialised hangs the whole dongle
+ * (docs/protocol.md §8), which only a physical replug fixes. That is the case before BMAC_INIT
+ * and again after DOWN_FINISH (the firmware puts the core back in reset): a READ_TSF sent with
+ * the interface down hung the dongle on 2026-10-04. Refuse it outright.
  */
 static int bmu_guard(struct bmu_dev *d, u32 id)
 {
 	switch (id) {
 	case BMU_ID_BMAC_INIT:
 		WRITE_ONCE(d->bmac_init_sent, true);
+		return 0;
+	case BMU_ID_DOWN_FINISH:
+		WRITE_ONCE(d->bmac_init_sent, false);
 		return 0;
 	case BMU_ID_REG_READ:
 	case BMU_ID_REG_WRITE:
@@ -180,7 +185,7 @@ static int bmu_guard(struct bmu_dev *d, u32 id)
 	case BMU_ID_WRITE_TEMPLATE:
 		if (!READ_ONCE(d->bmac_init_sent)) {
 			dev_warn_ratelimited(&d->intf->dev,
-					     "refusing rpc %u before BMAC_INIT (would hang the dongle)\n",
+					     "refusing rpc %u: d11 core not initialised (would hang the dongle)\n",
 					     id);
 			return -EPERM;
 		}
