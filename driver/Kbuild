@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: ISC
+obj-m := brcmsmac_usb.o
+brcmsmac_usb-y := bmu_usb.o bmu_rpc.o bmu_debugfs.o
+ccflags-y += -I$(src)
