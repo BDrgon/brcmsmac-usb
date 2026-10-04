@@ -7,6 +7,10 @@
   python3 -m rpcprobe rx      --seq SEQ --chanblocks BLK --chan 6 [--chan 1 ...] [--seconds 15]
                               [--no-up] [--out FILE.json]
                                                    up (unless --no-up), retune per channel, list beacons
+  python3 -m rpcprobe tx      --seq SEQ --chanblocks BLK --chan 6 [--ssid-hex HEX] [--bcast 2]
+                              [--directed 2] [--listen 4] [--no-up] [--out FILE.json]
+                                                   tune, listen, send a few probe requests (CCK 1 Mbit/s),
+                                                   report tx status and probe responses to our MAC
   python3 -m rpcprobe sync ID [HEXARGS]            one raw sync call on a connected session
   python3 -m rpcprobe call ID [HEXARGS]            one raw one-way call
 
@@ -18,7 +22,7 @@ import argparse, collections, glob, json, os, struct, sys, time
 
 import rpcids
 
-from . import rx, xdr
+from . import rx, tx, xdr
 from .replay import Replay
 from .session import Device, Session, DongleError, Disconnected
 from .trace import Trace
@@ -161,6 +165,122 @@ def cmd_rx(a):
     print(f'{len(rows)} BSSs seen')
 
 
+def cmd_tx(a):
+    """Phase 2.4/2.5: tune, listen, send a few probe requests, report tx status + probe responses."""
+    if a.no_up:
+        s = open_session(a)
+        if not s.reconnected:
+            s.close()
+            sys.exit('--no-up needs firmware that was already brought up (run `up` first)')
+    else:
+        s, ok = cmd_up(a, keep_open=True)
+        if not ok:
+            s.close()
+            sys.exit('init replay did not complete; not transmitting')
+    me = xdr.Reader(s.sync(56)).mac()
+    me_b = tx.mac(me)
+    blocks = json.load(open(a.chanblocks))
+    blk = blocks.get(str(a.chan))
+    if not blk:
+        s.close()
+        sys.exit(f'no retune block for channel {a.chan}')
+    target_ssid = bytes.fromhex(a.ssid_hex) if a.ssid_hex else None
+    bss = {}
+    to_us = []
+    statuses = []
+
+    def on_recv(m):
+        try:
+            f = rx.parse_recv(m.args)
+        except ValueError:
+            return
+        if not f.fcs_ok:
+            return
+        info = rx.beacon_info(f)
+        if info:
+            e = bss.setdefault(info['bssid'], dict(info, rssi=-127, n=0, ssid_raw=b''))
+            e['n'] += 1
+            e['rssi'] = max(e['rssi'], f.rssi)
+            for eid, v in rx.ies(f.frame):
+                if eid == 0:
+                    e['ssid_raw'] = v
+                    break
+        if f.ftype == rx.FT_MGMT and f.frame[4:10] == me_b:
+            to_us.append(dict(t=time.time(), subtype=f.subtype, ta=f.addr(2), rssi=f.rssi,
+                              ssid=(info or {}).get('ssid')))
+
+    def on_status(m):
+        d = tx.parse_txstatus(m.args)
+        d['t'] = time.time()
+        statuses.append(d)
+
+    s.on(81, on_recv)
+    s.on(82, on_status)
+    diffs = run_block(s, blk)
+    s.call(42, xdr.u32(0x00100000, 0x00100000))     # MCTL_BCNS_PROMISC on (see protocol §7.3)
+    print(f'tuned to channel {a.chan}; our MAC {me}' + (f' (block divergences: {diffs})' if diffs else ''))
+    time.sleep(a.listen)
+
+    target = None
+    cands = [(b, e) for b, e in bss.items() if e.get('ds_channel') == a.chan]
+    if target_ssid is not None:
+        cands = [(b, e) for b, e in cands if e['ssid_raw'] == target_ssid]
+    if cands:
+        target = max(cands, key=lambda be: be[1]['rssi'])
+    print(f'{len(bss)} BSSs heard; directed target: '
+          + (f'{target[0]} rssi {target[1]["rssi"]} ssid {target[1]["ssid"]!r}' if target else 'none'))
+
+    sent = []
+    seq = [0x100]
+
+    def send(da, bssid, ssid, label):
+        # Pre-TX steps exactly as the vendor driver does before each scan probe (protocol §7.1).
+        s.call(42, xdr.u32(0x00100000, 0x00100000))
+        s.call(51, xdr.u32(0x5a, 0x3f))
+        s.sync(45)
+        args, fid, frame = tx.build_probe(me_b, a.chan, seq[0], ssid=ssid, da=da, bssid=bssid)
+        seq[0] += 1
+        t = time.time()
+        s.call(61, args)
+        sent.append(dict(t=t, fid=fid, label=label, da=tx.mac(da).hex(':'), len=len(frame)))
+        print(f'{time.strftime("%H:%M:%S", time.localtime(t))}.{int(t % 1 * 1000):03d} '
+              f'TX {label} fid 0x{fid:04x} {len(frame)} B')
+        time.sleep(a.gap)
+
+    for _ in range(a.bcast):
+        send(tx.BROADCAST, tx.BROADCAST, b'', 'probe-req wildcard/broadcast')
+    if target:
+        for _ in range(a.directed):
+            send(tx.mac(target[0]), tx.mac(target[0]), target[1]['ssid_raw'], 'probe-req directed/unicast')
+    time.sleep(1.0)
+    s.close()
+
+    by_fid = {d['frameid']: d for d in statuses}
+    print('\ntx status:')
+    ok_status = True
+    for e in sent:
+        d = by_fid.get(e['fid'])
+        if not d:
+            ok_status = False
+            print(f'  fid 0x{e["fid"]:04x} {e["label"]}: NO STATUS')
+            continue
+        print(f'  fid 0x{e["fid"]:04x} {e["label"]}: status 0x{d["status"]:04x} valid={d["valid"]} '
+              f'ack={d["ack"]} tx_count={d["frm_rtx"]} supr={d["supr"]} seq={d["sequence"]} '
+              f'(+{(d["t"] - e["t"]) * 1000:.0f} ms)')
+    print(f'\nmanagement frames addressed to us: {len(to_us)}')
+    for r in to_us:
+        print(f'  subtype {r["subtype"]} from {r["ta"]} rssi {r["rssi"]} ssid {r["ssid"]!r}')
+    pr = [r for r in to_us if r['subtype'] == rx.ST_PROBE_RESP]
+    acked = any(by_fid.get(e['fid'], {}).get('ack') for e in sent if 'unicast' in e['label'])
+    print(f'\nG2b: probe responses to our MAC: {len(pr)}; directed probe ACKed: {acked}; '
+          f'all tx statuses received: {ok_status}')
+    if a.out:
+        fd = os.open(a.out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, 'w') as f:
+            json.dump(dict(sent=sent, statuses=statuses, to_us=to_us,
+                           target=target[0] if target else None), f, default=str)
+
+
 def cmd_raw(a, sync):
     s = open_session(a)
     args = bytes.fromhex(a.hexargs) if a.hexargs else b''
@@ -193,13 +313,27 @@ def main(argv=None):
                            help='do not force beacon-promiscuous mode after each retune')
             p.add_argument('--no-up', action='store_true',
                            help='skip the init replay (dongle already up from a previous `up`)')
+    p = sub.add_parser('tx')
+    p.add_argument('--seq', required=True)
+    p.add_argument('--chanblocks', required=True)
+    p.add_argument('--chan', type=int, required=True, choices=range(1, 12),
+                   help='2.4 GHz channel 1-11 only')
+    p.add_argument('--listen', type=float, default=4, help='seconds to listen before transmitting')
+    p.add_argument('--ssid-hex', help='directed-probe target SSID (hex; avoids shell quoting)')
+    p.add_argument('--bcast', type=int, default=2, choices=range(0, 6), help='wildcard broadcast probes')
+    p.add_argument('--directed', type=int, default=2, choices=range(0, 6), help='unicast directed probes')
+    p.add_argument('--gap', type=float, default=0.5, help='seconds between frames')
+    p.add_argument('--out')
+    p.add_argument('--no-up', action='store_true')
+    p.add_argument('--keep-going', action='store_true')
+    p.add_argument('--aggregate', action='store_true')
     for name in ('sync', 'call'):
         p = sub.add_parser(name)
         p.add_argument('id', type=int)
         p.add_argument('hexargs', nargs='?')
     a = ap.parse_args(argv)
     try:
-        {'info': cmd_info, 'probe': cmd_probe, 'up': cmd_up, 'rx': cmd_rx,
+        {'info': cmd_info, 'probe': cmd_probe, 'up': cmd_up, 'rx': cmd_rx, 'tx': cmd_tx,
          'sync': lambda a: cmd_raw(a, True), 'call': lambda a: cmd_raw(a, False)}[a.cmd](a)
     except Disconnected as e:
         sys.exit(f'DISCONNECTED: {e} (firmware self-reboot or unplug; rerun to re-download)')
