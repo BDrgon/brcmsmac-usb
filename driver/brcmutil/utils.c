@@ -8,11 +8,13 @@
 #include <linux/netdevice.h>
 #include <linux/module.h>
 
+/*
+ * brcmsmac_usb: linked into the module; nothing is exported, so this copy never
+ * clashes with the in-tree brcmutil.
+ */
+
 #include <brcmu_utils.h>
 
-MODULE_AUTHOR("Broadcom Corporation");
-MODULE_DESCRIPTION("Broadcom 802.11n wireless LAN driver utilities.");
-MODULE_LICENSE("Dual BSD/GPL");
 
 struct sk_buff *brcmu_pkt_buf_get_skb(uint len)
 {
@@ -26,7 +28,6 @@ struct sk_buff *brcmu_pkt_buf_get_skb(uint len)
 
 	return skb;
 }
-EXPORT_SYMBOL(brcmu_pkt_buf_get_skb);
 
 /* Free the driver packet. Free the tag if present */
 void brcmu_pkt_buf_free_skb(struct sk_buff *skb)
@@ -37,7 +38,6 @@ void brcmu_pkt_buf_free_skb(struct sk_buff *skb)
 	WARN_ON(skb->next);
 	dev_kfree_skb_any(skb);
 }
-EXPORT_SYMBOL(brcmu_pkt_buf_free_skb);
 
 /*
  * osl multiple-precedence packet queue
@@ -60,7 +60,6 @@ struct sk_buff *brcmu_pktq_penq(struct pktq *pq, int prec,
 
 	return p;
 }
-EXPORT_SYMBOL(brcmu_pktq_penq);
 
 struct sk_buff *brcmu_pktq_penq_head(struct pktq *pq, int prec,
 					   struct sk_buff *p)
@@ -79,7 +78,6 @@ struct sk_buff *brcmu_pktq_penq_head(struct pktq *pq, int prec,
 
 	return p;
 }
-EXPORT_SYMBOL(brcmu_pktq_penq_head);
 
 struct sk_buff *brcmu_pktq_pdeq(struct pktq *pq, int prec)
 {
@@ -94,7 +92,6 @@ struct sk_buff *brcmu_pktq_pdeq(struct pktq *pq, int prec)
 	pq->len--;
 	return p;
 }
-EXPORT_SYMBOL(brcmu_pktq_pdeq);
 
 /*
  * precedence based dequeue with match function. Passing a NULL pointer
@@ -119,7 +116,6 @@ struct sk_buff *brcmu_pktq_pdeq_match(struct pktq *pq, int prec,
 	}
 	return NULL;
 }
-EXPORT_SYMBOL(brcmu_pktq_pdeq_match);
 
 struct sk_buff *brcmu_pktq_pdeq_tail(struct pktq *pq, int prec)
 {
@@ -134,7 +130,6 @@ struct sk_buff *brcmu_pktq_pdeq_tail(struct pktq *pq, int prec)
 	pq->len--;
 	return p;
 }
-EXPORT_SYMBOL(brcmu_pktq_pdeq_tail);
 
 void
 brcmu_pktq_pflush(struct pktq *pq, int prec, bool dir,
@@ -152,7 +147,6 @@ brcmu_pktq_pflush(struct pktq *pq, int prec, bool dir,
 		}
 	}
 }
-EXPORT_SYMBOL(brcmu_pktq_pflush);
 
 void brcmu_pktq_flush(struct pktq *pq, bool dir,
 		      bool (*fn)(struct sk_buff *, void *), void *arg)
@@ -161,7 +155,6 @@ void brcmu_pktq_flush(struct pktq *pq, bool dir,
 	for (prec = 0; prec < pq->num_prec; prec++)
 		brcmu_pktq_pflush(pq, prec, dir, fn, arg);
 }
-EXPORT_SYMBOL(brcmu_pktq_flush);
 
 void brcmu_pktq_init(struct pktq *pq, int num_prec, int max_len)
 {
@@ -180,7 +173,6 @@ void brcmu_pktq_init(struct pktq *pq, int num_prec, int max_len)
 		skb_queue_head_init(&pq->q[prec].skblist);
 	}
 }
-EXPORT_SYMBOL(brcmu_pktq_init);
 
 struct sk_buff *brcmu_pktq_peek_tail(struct pktq *pq, int *prec_out)
 {
@@ -198,7 +190,6 @@ struct sk_buff *brcmu_pktq_peek_tail(struct pktq *pq, int *prec_out)
 
 	return skb_peek_tail(&pq->q[prec].skblist);
 }
-EXPORT_SYMBOL(brcmu_pktq_peek_tail);
 
 /* Return sum of lengths of a specific set of precedences */
 int brcmu_pktq_mlen(struct pktq *pq, uint prec_bmp)
@@ -213,7 +204,6 @@ int brcmu_pktq_mlen(struct pktq *pq, uint prec_bmp)
 
 	return len;
 }
-EXPORT_SYMBOL(brcmu_pktq_mlen);
 
 /* Priority dequeue from a specific set of precedences */
 struct sk_buff *brcmu_pktq_mdeq(struct pktq *pq, uint prec_bmp,
@@ -247,7 +237,6 @@ struct sk_buff *brcmu_pktq_mdeq(struct pktq *pq, uint prec_bmp,
 
 	return p;
 }
-EXPORT_SYMBOL(brcmu_pktq_mdeq);
 
 /* Produce a human-readable string for boardrev */
 char *brcmu_boardrev_str(u32 brev, char *buf)
@@ -263,7 +252,6 @@ char *brcmu_boardrev_str(u32 brev, char *buf)
 	}
 	return buf;
 }
-EXPORT_SYMBOL(brcmu_boardrev_str);
 
 char *brcmu_dotrev_str(u32 dotrev, char *buf)
 {
@@ -290,7 +278,6 @@ char *brcmu_dotrev_str(u32 dotrev, char *buf)
 
 	return buf;
 }
-EXPORT_SYMBOL(brcmu_dotrev_str);
 
 #if defined(DEBUG)
 /* pretty hex print a pkt buffer chain */
@@ -304,7 +291,6 @@ void brcmu_prpkt(const char *msg, struct sk_buff *p0)
 	for (p = p0; p; p = p->next)
 		print_hex_dump_bytes("", DUMP_PREFIX_OFFSET, p->data, p->len);
 }
-EXPORT_SYMBOL(brcmu_prpkt);
 
 void brcmu_dbg_hex_dump(const void *data, size_t size, const char *fmt, ...)
 {
@@ -322,6 +308,5 @@ void brcmu_dbg_hex_dump(const void *data, size_t size, const char *fmt, ...)
 
 	print_hex_dump_bytes("", DUMP_PREFIX_OFFSET, data, size);
 }
-EXPORT_SYMBOL(brcmu_dbg_hex_dump);
 
 #endif				/* defined(DEBUG) */

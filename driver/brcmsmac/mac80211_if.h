@@ -18,12 +18,11 @@
 #define _BRCM_MAC80211_IF_H_
 
 #include <linux/timer.h>
-#include <linux/interrupt.h>
 #include <linux/workqueue.h>
-#include <linux/leds.h>
+#include <linux/mutex.h>
+#include <linux/skbuff.h>
 
-#include "ucode_loader.h"
-#include "led.h"
+#include "bmac.h"
 /*
  * Starting index for 5G rates in the
  * legacy rate table.
@@ -49,26 +48,18 @@ struct brcms_timer {
 
 struct brcms_if {
 	uint subunit;		/* WDS/BSS unit */
-	struct pci_dev *pci_dev;
 };
 
-#define MAX_FW_IMAGES		4
-struct brcms_firmware {
-	u32 fw_cnt;
-	const struct firmware *fw_bin[MAX_FW_IMAGES];
-	const struct firmware *fw_hdr[MAX_FW_IMAGES];
-	u32 hdr_num_entries[MAX_FW_IMAGES];
-};
-
+/*
+ * brcmsmac_usb: every HIGH path may sleep on a synchronous RPC, so the perimeter lock is a
+ * mutex and the softirq/tasklet paths of brcmsmac (mac80211 .tx, ISR + DPC) became work items.
+ */
 struct brcms_info {
 	struct brcms_pub *pub;		/* pointer to public wlc state */
 	struct brcms_c_info *wlc;	/* pointer to private common data */
 	u32 magic;
 
-	int irq;
-
-	spinlock_t lock;	/* per-device perimeter lock */
-	spinlock_t isr_lock;	/* per-device ISR synchronization lock */
+	struct mutex lock;	/* per-device perimeter lock */
 
 	/* tx flush */
 	wait_queue_head_t tx_flush_wq;
@@ -77,14 +68,18 @@ struct brcms_info {
 	atomic_t callbacks;	/* # outstanding callback functions */
 	struct brcms_timer *timers;	/* timer cleanup queue */
 
-	struct tasklet_struct tasklet;	/* dpc tasklet */
 	bool resched;		/* dpc needs to be and is rescheduled */
-	struct brcms_firmware fw;
 	struct wiphy *wiphy;
-	struct brcms_ucode ucode;
 	bool mute_tx;
-	struct brcms_led radio_led;
-	struct led_classdev led_dev;
+
+	/* USB split-MAC glue */
+	struct bmac_core core;		/* stand-in for the bcma d11 core */
+	struct bmu_dev *bmu;
+	struct sk_buff_head txq;	/* frames from mac80211, sent by tx_work */
+	struct work_struct tx_work;
+	struct sk_buff_head rpcq;	/* messages from the LOW, handled by dpc_work */
+	struct work_struct dpc_work;
+	bool registered;
 };
 
 /* misc callbacks */
@@ -106,7 +101,6 @@ struct brcms_timer *brcms_init_timer(struct brcms_info *wl,
 void brcms_free_timer(struct brcms_timer *timer);
 void brcms_add_timer(struct brcms_timer *timer, uint ms, int periodic);
 bool brcms_del_timer(struct brcms_timer *timer);
-void brcms_dpc(struct tasklet_struct *t);
 void brcms_timer(struct brcms_timer *t);
 void brcms_fatal_error(struct brcms_info *wl);
 

@@ -1,4 +1,22 @@
 # SPDX-License-Identifier: ISC
 obj-m := brcmsmac_usb.o
+
+# USB transport and RPC core
 brcmsmac_usb-y := bmu_usb.o bmu_rpc.o bmu_debugfs.o
-ccflags-y += -I$(src)
+
+# forked brcmsmac upper MAC (docs/split-map.md) + RPC-backed LOW proxy
+brcmsmac_usb-y += \
+	brcmsmac/mac80211_if.o \
+	brcmsmac/main.o \
+	brcmsmac/ampdu.o \
+	brcmsmac/antsel.o \
+	brcmsmac/channel.o \
+	brcmsmac/rate.o \
+	brcmsmac/stf.o \
+	brcmsmac/debug.o \
+	brcmsmac/bmac.o \
+	brcmsmac/bmac_phy.o \
+	brcmsmac/bmac_dma.o \
+	brcmutil/utils.o
+
+ccflags-y += -I$(src) -I$(src)/brcmsmac -I$(src)/brcmsmac/phy -I$(src)/include

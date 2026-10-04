@@ -76,16 +76,17 @@ void bmu_rx_frames(struct bmu_dev *d, const u8 *buf, u32 len)
 			bmu_async_fn fn;
 			void *ctx;
 
-			d->stats.async_by_id[id & 0xff]++;
-			bmu_trace(d, 'I', kind, hdr & 0xffff, id, msg + 8, n - 8);
 			unsigned long flags;
 
+			d->stats.async_by_id[id & 0xff]++;
+			bmu_trace(d, 'I', kind, hdr & 0xffff, id, msg + 8, n - 8);
+			/* under the lock, so clearing the handler waits for a running call */
 			spin_lock_irqsave(&d->lock, flags);
 			fn = d->async_fn;
 			ctx = d->async_ctx;
-			spin_unlock_irqrestore(&d->lock, flags);
 			if (fn)
 				fn(ctx, id, msg + 8, n - 8);
+			spin_unlock_irqrestore(&d->lock, flags);
 		} else {
 			d->stats.rx_bad_frames++;
 		}

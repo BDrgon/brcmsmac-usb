@@ -9,6 +9,7 @@
 #include <linux/delay.h>
 #include <linux/jiffies.h>
 #include "bmu.h"
+#include "brcmsmac/bmac.h"
 
 static char *fw_version = "5.100.148.5";
 module_param(fw_version, charp, 0444);
@@ -428,6 +429,11 @@ static void bmu_init_work(struct work_struct *work)
 		return;
 	if (identify)
 		bmu_identify(d);
+
+	/* bring up the brcmsmac HIGH MAC on top of the session (docs/split-map.md) */
+	ret = brcms_usb_attach(d, dev);
+	if (ret)
+		dev_err(dev, "mac80211 attach failed (%d); transport stays up for debugging\n", ret);
 }
 
 /*
@@ -537,11 +543,24 @@ static void bmu_disconnect(struct usb_interface *intf)
 	if (!d)
 		return;
 	bmu_debugfs_exit(d);		/* waits for in-flight debugfs ops */
+
+	/*
+	 * Unplugged: fail every call at once. Otherwise (rmmod, unbind, reset) keep the session
+	 * so the HIGH MAC can take the firmware down cleanly.
+	 */
+	if (interface_to_usbdev(intf)->state == USB_STATE_NOTATTACHED) {
+		spin_lock_irqsave(&d->lock, flags);
+		d->state = BMU_ST_GONE;
+		spin_unlock_irqrestore(&d->lock, flags);
+		complete_all(&d->mgmt_done);
+	}
+	cancel_work_sync(&d->init_work);	/* attach runs from here */
+	brcms_usb_detach(d);
+
 	spin_lock_irqsave(&d->lock, flags);
 	d->state = BMU_ST_GONE;
 	spin_unlock_irqrestore(&d->lock, flags);
 	complete_all(&d->mgmt_done);
-	cancel_work_sync(&d->init_work);
 	cancel_delayed_work_sync(&d->recover_work);
 	WRITE_ONCE(d->state, BMU_ST_GONE);
 	usb_kill_anchored_urbs(&d->rx_anchor);
@@ -563,7 +582,30 @@ static struct usb_driver bmu_driver = {
 	.id_table = bmu_table,
 	.disable_hub_initiated_lpm = 1,
 };
-module_usb_driver(bmu_driver);
+
+/* brcmsmac's per-device debugfs files live under brcmsmac_usb_wl/ (brcmsmac/debug.c) */
+void brcms_debugfs_init(void);
+void brcms_debugfs_exit(void);
+
+static int __init bmu_module_init(void)
+{
+	int ret;
+
+	brcms_debugfs_init();
+	ret = usb_register(&bmu_driver);
+	if (ret)
+		brcms_debugfs_exit();
+	return ret;
+}
+
+static void __exit bmu_module_exit(void)
+{
+	usb_deregister(&bmu_driver);
+	brcms_debugfs_exit();
+}
+
+module_init(bmu_module_init);
+module_exit(bmu_module_exit);
 
 MODULE_AUTHOR("brcmsmac-usb contributors");
 MODULE_DESCRIPTION("Broadcom BCM4322 USB BMAC (split-MAC) dongle driver");

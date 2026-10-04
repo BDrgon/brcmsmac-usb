@@ -115,6 +115,7 @@ struct bmu_stats {
 };
 
 struct bmu_dev;
+struct ieee80211_hw;
 
 /* Handler for one-way dongle→host calls; runs in URB completion (atomic) context. */
 typedef void (*bmu_async_fn)(void *ctx, u32 id, const u8 *args, u32 len);
@@ -146,8 +147,10 @@ struct bmu_dev {
 	struct usb_anchor rx_anchor;
 	struct usb_anchor tx_anchor;
 	struct urb *rx_urb[BMU_RX_URBS];
-	bmu_async_fn async_fn;
+	bmu_async_fn async_fn;		/* called under lock; must not sleep or submit */
 	void *async_ctx;
+
+	struct ieee80211_hw *wl;	/* brcmsmac HIGH MAC (brcmsmac/mac80211_if.c), if attached */
 
 	/* identity (filled after connect) */
 	u8 revinfo[124];
