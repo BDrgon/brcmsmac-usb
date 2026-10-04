@@ -156,6 +156,9 @@ void wlc_phy_ofdm_rateset_war(struct brcms_phy_pub *pi, bool war)
  */
 int wlc_phy_rssi_compute(struct brcms_phy_pub *pi, struct d11rxhdr *rxh)
 {
+	/* as brcmsmac: without valid PHY receive status there is no RSSI */
+	if (!(rxh->RxStatus2 & RXS_PHYRXST_VALID))
+		return BRCMS_RSSI_INVALID;
 	return ((s8 *)rxh)[28];
 }
 

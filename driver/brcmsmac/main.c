@@ -4181,6 +4181,8 @@ prep_mac80211_status(struct brcms_c_info *wlc, struct d11rxhdr *rxh,
 		ieee80211_channel_to_frequency(channel, rx_status->band);
 
 	rx_status->signal = wlc_phy_rssi_compute(wlc->hw->band->pi, rxh);
+	if (rx_status->signal == BRCMS_RSSI_INVALID)
+		rx_status->flag |= RX_FLAG_NO_SIGNAL_VAL;
 
 	/* noise */
 	/* qual */
@@ -4261,15 +4263,16 @@ prep_mac80211_status(struct brcms_c_info *wlc, struct d11rxhdr *rxh,
 	if (plcp3_issgi(plcp[3]))
 		rx_status->enc_flags |= RX_ENC_FLAG_SHORT_GI;
 
+	/* brcmsmac_usb: per-frame events, so debug level (monitor with fcsfail would flood) */
 	if (rxh->RxStatus1 & RXS_DECERR) {
 		rx_status->flag |= RX_FLAG_FAILED_PLCP_CRC;
-		brcms_err(wlc->hw->d11core, "%s:  RX_FLAG_FAILED_PLCP_CRC\n",
-			  __func__);
+		brcms_dbg_rx(wlc->hw->d11core, "%s:  RX_FLAG_FAILED_PLCP_CRC\n",
+			     __func__);
 	}
 	if (rxh->RxStatus1 & RXS_FCSERR) {
 		rx_status->flag |= RX_FLAG_FAILED_FCS_CRC;
-		brcms_err(wlc->hw->d11core, "%s:  RX_FLAG_FAILED_FCS_CRC\n",
-			  __func__);
+		brcms_dbg_rx(wlc->hw->d11core, "%s:  RX_FLAG_FAILED_FCS_CRC\n",
+			     __func__);
 	}
 }
 
