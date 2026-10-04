@@ -580,6 +580,11 @@ static struct usb_driver bmu_driver = {
 	.probe = bmu_probe,
 	.disconnect = bmu_disconnect,
 	.id_table = bmu_table,
+	/*
+	 * Keep the endpoints enabled through disconnect on rmmod/unbind, so the HIGH MAC can still
+	 * take the firmware down (DOWN_PREP/DOWN_FINISH). bmu_disconnect() kills its own URBs.
+	 */
+	.soft_unbind = 1,
 	.disable_hub_initiated_lpm = 1,
 };
 
