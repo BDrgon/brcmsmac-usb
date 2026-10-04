@@ -25,3 +25,6 @@ Module.symvers
 .tmp_versions/
 __pycache__/
 *.pyc
+
+# build output
+build/

@@ -1,0 +1,2 @@
+obj-m += bcm_hello.o
+bcm_hello-y := hello.o
