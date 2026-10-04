@@ -193,6 +193,7 @@ LICENSE, `docs/decisions.md`, a sanitised-fixtures audit, and an x86_64 verifica
 | D8 | **Firmware distribution deferred to Phase 9** (user decision 2026-10-04); development uses `work/` firmware | Doesn't block Phases 2–8; decide with the full picture at release | user decides earlier |
 | D9 | Userspace replay is **data-driven from private captures** (`seqextract` → `work/seq/`); only extractors and sanitised fixtures are committed | Keeps vendor-derived sequences private; the kernel driver must instead generate calls from brcmsmac logic (Phase 4) | — |
 | D10 | Userspace TX builders mirror the vendor's d11txh for CCK management frames; the kernel driver builds headers with brcmsmac's own `brcms_c_d11hdrs_mac80211()` and uses the userspace builders only as a test oracle | brcmsmac already produces this exact layout; one source of truth | the RPC path needs fields brcmsmac doesn't fill |
+| D11 | **x86 dev box** (MacBookPro5,5, Arch `linux-lts` 6.18, EHCI) is the primary target for Phases 3–8; the Pi is validated at major gates (G3, G4, G7) | Native builds, stable power, faster debugging; SPEC N1 already requires x86_64. The box's only uplink is its internal PCIe BCM4322 on the proprietary `wl` driver: our module binds only `0846:9020`, never touches `wl`/`cfg80211`/`b43`/`ssb`/`bcma`/`brcmsmac`, and associated test interfaces live in a network namespace | the Pi exposes ARMv6-only bugs |
 
 ## Risks
 
