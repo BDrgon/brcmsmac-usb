@@ -118,6 +118,21 @@ mask/status functions (→ no-ops), `validate_chip_access`, `core_phypll_ctl`, `
 `read/write_objmem`, `pllreq` (→ no-op), `brcms_b_coreinit`, the `brcms_b_attach` body (→ RPC
 attach), `brcms_b_recv`, `chipmatch*`.
 
+## 6a. Implementation notes (phase 4.3–4.4)
+
+- Argument layouts confirmed from the capture dump since §3/§4 were written: PHY_HOLD_UPD 22
+  `(id, val)` (vendor: `(PHY_HOLD_FOR_SCAN, 0/1)` and `(0x20, …)`), PHY_MUTE_UPD 23
+  `(0, 0xffffffff)` (= brcmsmac's `wlc_phy_mute_upd(pi, false, PHY_MUTE_ALL)` in `brcms_c_down`),
+  COPYFROM_OBJMEM 39 `(0xe0, 128, OBJADDR_SHM_SEL)` every 30 s (= `brcms_c_statsupd`).
+- Not seen on the wire, so not sent: BMAC_MUTE 20 (host no-op; TX is gated on the host instead),
+  RETRYLIMIT_UPD 92 (sent only if the limits differ from the 7/4 the firmware starts with),
+  PHYCHAIN_SET 88 (logged if ever used). RPC_AGG_SET 14, BTC, LED and TXPWR_PERCENT calls the
+  vendor makes at attach are skipped.
+- TXFIFO words 2–5 use the vendor's management-frame values `(0xffff, 1, 0, 0)`; transmission is
+  off unless `allow_tx=1` (PLAN phase 6).
+- `brcms_c_init()` produces essentially the vendor's post-BMAC_INIT sequence by itself (ifs_ctl
+  0x688, tsf_random 0x65a, rfdisabledly 0x3dc, M_AC_TXLMT reads, rate-table SHM pairs).
+
 ## 7. Known gaps / decisions deferred
 
 - **AMPDU TX** (needs the LOW's tx-status `s2`…`s4` words) → after v1.

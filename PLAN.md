@@ -15,14 +15,16 @@ found it, and updates the status board below.
 | 1 | Repo & toolchain | ✅ done (chunk 2 deferred to Phase 9, D8) | G1 |
 | 2 | Userspace reference driver (`rpcprobe`) | ✅ done (id 161 still unnamed) | G2a RX ✅, G2b TX ✅ |
 | 3 | Kernel transport module | ✅ done (hard-hang reset untested) | G3 ✅ |
-| 4 | brcmsmac fork + RPC stub layer | 🚧 in progress (4.1, 4.2 done; 4.3 stopped) | G4 |
-| 5 | RX path + monitor mode | ⏳ | G5 |
+| 4 | brcmsmac fork + RPC stub layer | ✅ done on x86 (Pi not yet validated) | G4 ✅ (x86) |
+| 5 | RX path + monitor mode | ⏸ not started: dev-box SSH access lost (see chunk log) | G5 |
 | 6 | TX path + scan + open association | ⏳ | G6 |
 | 7 | WPA2 + real-network use | ⏳ | G7 |
 | 8 | Robustness & soak | ⏳ | G8 |
 | 9 | Packaging & release | ⏳ | G9 = SPEC §9 |
 
 **Chunk log** (newest first; one line per chunk, with what changed and where the notes are):
+
+- 2026-10-04 · phase 4.3–4.4 (branch `phase4`) · `driver/brcmsmac/bmac.c` (brcms_b_* over RPC, attach identity: REVINFO/XMTFIFO/NVRAM→ssb_sprom/MAC/PHY_BAND_CHANNELS, WLC_RECV + DOTXSTATUS parsers), `bmac_phy.c` (wlc_phy_* stand-ins), `bmac_dma.c` (per-FIFO pending lists; TX gated by `allow_tx`, default off), `main.c` attach/init/down glue, `mac80211_if.c` USB attach + mutex perimeter + `tx_work`/`dpc_work`. Only ids with captured argument layouts are sent (newly confirmed from the capture dump: 22 `(id, val)`, 23 `(0, PHY_MUTE_ALL)`, 39 `(0xe0, 128, SHM_SEL)` every 30 s; BMAC_MUTE stays a host no-op). Builds warning-free (arm 6.18.53 tree and the x86 box). **G4 passed on x86**, evidence below. Then SSH to the dev box started refusing the (unchanged) key mid-session — host reachable, auth denied — so hardware work stopped there; Phase 5 not started.
 
 - 2026-10-04 · phase 4.1–4.3 (partial, branch `phase4`) · 4.1: brcmsmac/include/brcmutil imported pristine from Linux 6.18.53 (`driver/UPSTREAM`). 4.2: `docs/split-map.md` (LOW API → RPC map, REVINFO order, SHM map match, 38-B rx header, 3×52-B power limits). 4.3 WIP: `driver/brcmsmac/bmac.h` (LOW-proxy interface), `tools/dev/cutfuncs.py`, `main.c` with LOW internals removed (8065 → 5043 lines; does **not** build yet). **Stopped**: writing `driver/brcmsmac/bmac.c` (the RPC-backed `brcms_b_*` implementation) was halted by an automated safety check in the agent tooling; needs a decision in the main session on how to proceed. G4 not reached.
 
@@ -148,6 +150,21 @@ Chunks:
 
 **Gate G4:** `iw phy` shows the device with sensible 2.4 GHz channels and rates. `ip link` shows
 `wlanN`. Bringing the interface up doesn't assert the firmware.
+
+**G4 status (2026-10-04, x86 dev box, firmware 5.100.148.5):** ✅
+- Module loads with `cfg80211`, `mac80211` only; exports no symbols; binds only `0846:9020`.
+- Attach over RPC logs `d11 corerev 16, chip 0x4322 rev 1 pkg 9, board 0x4d5 rev 0x1300, 1 band(s),
+  phy 4 rev 4, radio 0x2056 rev 3`, `sromrev 8 … txchain 3 rxchain 3 ccode US, 2.4 GHz channels 0x7ffe`,
+  then `ieee80211 phy1: registered phy1`; the interface appears as `wlan0` (renamed by udev to a
+  predictable name).
+- `iw phy`: managed + monitor; channels 1–11, 12–13 no-IR, 14 disabled (19 dBm); 12 legacy rates;
+  HT20 MCS 0–15, SGI, greenfield RX.
+- Bring-up: NetworkManager brought it up on registration (then set unmanaged at runtime), plus 3×
+  `ip link set down/up`. Each up runs brcmsmac's own sequence (HW_UP, UP_PREP, BMAC_RESET,
+  BMAC_INIT, SHM/rate table/EDCF writes, ENABLE_MAC, UP_FINISH, …). Afterwards: 308 sync calls,
+  0 timeouts, 0 sync/tx/rx errors; `STATE_GET` still answers (same reply as in the vendor capture);
+  WLC_RECV frames already arriving (79), RESET_BMAC_DONE/UPDATE_PHY_MODE as expected. No WARN/oops.
+- Not yet run with this code: unload with the interface up, replug cycles, Pi build/run.
 
 ## Phase 5 — RX path + monitor mode
 
