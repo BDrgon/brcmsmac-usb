@@ -17,12 +17,14 @@ found it, and updates the status board below.
 | 3 | Kernel transport module | ✅ done (hard-hang reset untested) | G3 ✅ |
 | 4 | brcmsmac fork + RPC stub layer | ✅ done on x86; Pi cross-build OK, not run there | G4 ✅ (x86) |
 | 5 | RX path + monitor mode | ✅ done on x86 | G5 ✅ (x86) |
-| 6 | TX path + scan + open association | ⏳ | G6 |
-| 7 | WPA2 + real-network use | ⏳ | G7 |
+| 6 | TX path + scan + open association | 🚧 in progress (branch `phase6`); dongle hung, replug needed | G6 ❌ not passed |
+| 7 | WPA2 + real-network use | ⏳ (blocked on G6) | G7 |
 | 8 | Robustness & soak | ⏳ | G8 |
 | 9 | Packaging & release | ⏳ | G9 = SPEC §9 |
 
 **Chunk log** (newest first; one line per chunk, with what changed and where the notes are):
+
+- 2026-10-04 · phase 6 (branch `phase6`, partial) · TX enabled briefly (`allow_tx=1`, 2.4 GHz ch 1–11, scans and test associations only, inside netns `bcmtest`). Active scan, auth/assoc and WPA2 4-way handshake work; **G6 not passed**: TX degrades to tx-status SUPR EXPTIME within ~10–40 s of interface up, so DHCP never completes. Bisected with rpcprobe (details under Phase 6). New: debugfs `last_tx`/`txlog`/`rxtx`, 2048×256 B trace ring, key-table clear after BMAC_INIT (partly verified), `tests/hw/netns-assoc.sh`, `tools/dev/txcmp.py`. **Dongle hard-hung** by a synthetic userspace experiment (vendor init cut off mid-EDCF block, then our sequence); USB port reset failed (descriptor read -32) → off the bus, **physical replug needed**. TEST network (phone hotspot) never visible in scans during the session; the HOME network was used.
 
 - 2026-10-04 · phase 5 (branch `phase5`) · Monitor mode and passive scan already worked on the G4 code; changes: receive timestamps from the rx header's TSF low word (byte 24) plus a cached READ_TSF high word instead of one synchronous READ_TSF per frame (~200/s → 3 per 20 s capture); frames without `RXS_PHYRXST_VALID` reported with `RX_FLAG_NO_SIGNAL_VAL`; FCS/PLCP error logging to debug level. New `tools/pcapsum.py`, `tests/hw/monitor.sh`. **G5 passed** (evidence under Phase 5). Firmware quirk documented (protocol.md §7.2): rare frames received off-channel but labelled with the tuned channel; the vendor init sequence (via rpcprobe) shows the same. Dev box: `tcpdump`, `dhcpcd` installed (pacman, deps already present; dhcpcd service not enabled).
 
@@ -195,6 +197,33 @@ correct radiotap channel and signal. Passive `iw scan` works.
   only reports the associated (5 GHz) BSS in `iw scan dump`, and scanning the uplink was avoided.
 
 ## Phase 6 — TX path + scan + open association
+
+**Phase 6 status (2026-10-04, x86 dev box): G6 ❌ not passed.**
+- Works: active `iw scan` with `allow_tx=1` (16 BSSs; our probe requests seen in a concurrent monitor
+  capture, probe responses addressed to us); open-system auth + association with the HOME AP
+  (WPA2-PSK, ch 1) inside netns `bcmtest`, ACKed (tx status 0x1003); EAPOL 4-way handshake completes
+  (`WPA: Key negotiation completed [PTK=CCMP GTK=CCMP]`). Our probe-request d11txh equals the
+  vendor's except HWSEQ and XtraFrameTypes (setting them like the vendor changed nothing).
+- Fails: most frames end with tx status `0x0015` = SUPR **EXPTIME** (lifetime expired in the
+  FIFO, never transmitted), increasing with time since interface up: ~45 % of probes in a scan right
+  after up, 5/5 after 40 s idle. DHCP therefore times out; one run lost the handshake (WRONG_KEY).
+  The vendor sequence through rpcprobe has 0 % (5/5 sent after 40 s idle, and 0 suppressed of 600 in
+  the capture).
+- Bisect (rpcprobe replaying sequences on the same dongle, 5 probes after 40 s idle):
+  vendor init alone ✓ · our complete recorded sequence (load + up, `debugfs trace`) ✗ · vendor
+  init up to its BMAC_INIT + ours from our BMAC_INIT ✗ · vendor init entries 0–139 + ours ✗ ·
+  **complete vendor init (through UP_FINISH) + ours from our BMAC_INIT ✓** · same but skipping our
+  BMAC_INIT: no tx status at all. Not it (tested on our driver, no effect): vendor attach calls
+  (93/134/109/26/90/141/140), vendor MHF bits, MAXSYM/WATCHDOG_8TU, MCTL WAKE, READ_TSF / SHM 0x5a /
+  BCNS before each frame, the vendor's CHANSPEC_SET power limits (helps briefly after a retune,
+  degrades again), our template/CHANSPEC writes, our periodic calls (39/45/135).
+  → Something in vendor init entries 140–278 (key/RCMTA clear, 141/140/90, CHANSPEC with its
+  limits, rate tables, **EDCF parameters** — vendor writes per-AC cw/aifs/TXOP, ours are all
+  cw 15/1023 — REG 0x3dc, SHM 0x7c = 800, MHF4 0x20, UP_FINISH) leaves state that survives a later
+  BMAC_INIT and keeps TX working; our init lacks it. Next: bisect inside 140–278 **without cutting a
+  block in half** (the cut at 210, inside the EDCF writes, hung the dongle).
+- Also open: DECATMPT on protected frames while associated despite the key-table clear (monitor
+  mode is clean); `brcms_ops_config: change power-save mode (implement)` noise.
 
 **Gate G6:** active `iw scan` lists APs. The interface associates with an **open** test AP (for
 example hostapd on a Linux laptop, or a phone hotspot if it can run open) and pings the gateway for 5 min.

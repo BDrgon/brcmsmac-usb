@@ -55,3 +55,14 @@ driver now refuses, and a failed test would need a physical replug.
   module-wide, because each reset re-probes the device).
 - Register/shared-memory RPCs (ids 1, 2, 39, 40, 44, 45, 51, 52) are refused with `-EPERM`
   until `BMAC_INIT` (18) has been sent.
+
+### Hard hang on x86 (2026-10-04)
+
+A synthetic rpcprobe experiment hung the dongle hard: the vendor init sequence replayed only up to
+entry 210 (UP_PREP and BMAC_INIT done, stopped in the middle of the EDCF parameter writes, before
+UP_FINISH), then the driver's own recorded sequence from its BMAC_INIT onward. A sync call got no
+reply and `DL_GETVER` timed out. `USBDEVFS_RESET` (`tools/usbrecover.py reset`) then failed exactly as on
+the Pi: `device descriptor read/8, error -32`, `unable to enumerate USB device`, and the device left
+the bus. So **on this host too, a port reset does not clear a hard hang; a physical replug is needed.**
+The driver itself never produces this order of calls. Lesson for bisecting: cut replayed sequences
+only at block boundaries (after UP_FINISH, or between whole SHM blocks).
