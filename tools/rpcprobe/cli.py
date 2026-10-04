@@ -5,7 +5,8 @@
   python3 -m rpcprobe up      --seq SEQ [--keep-going] [--aggregate]
                                                    connect + replay a captured init sequence
   python3 -m rpcprobe rx      --seq SEQ --chanblocks BLK --chan 6 [--chan 1 ...] [--seconds 15]
-                                                   up, then retune per channel and list beacons
+                              [--no-up] [--out FILE.json]
+                                                   up (unless --no-up), retune per channel, list beacons
   python3 -m rpcprobe sync ID [HEXARGS]            one raw sync call on a connected session
   python3 -m rpcprobe call ID [HEXARGS]            one raw one-way call
 
@@ -101,10 +102,16 @@ def run_block(s, block):
 
 
 def cmd_rx(a):
-    s, ok = cmd_up(a, keep_open=True)
-    if not ok:
-        s.close()
-        sys.exit('init replay did not complete; not starting receive')
+    if a.no_up:
+        s = open_session(a)
+        if not s.reconnected:
+            s.close()
+            sys.exit('--no-up needs firmware that was already brought up (run `up` first)')
+    else:
+        s, ok = cmd_up(a, keep_open=True)
+        if not ok:
+            s.close()
+            sys.exit('init replay did not complete; not starting receive')
     blocks = json.load(open(a.chanblocks))
     seen = {}
     counts = collections.Counter()
@@ -134,6 +141,10 @@ def cmd_rx(a):
             print(f'no retune block for channel {ch} in {a.chanblocks}')
             continue
         diffs = run_block(s, blk)
+        if not a.no_bcns_promisc:
+            # MCTRL(mask, value): MCTL_BCNS_PROMISC (0x00100000, brcmsmac d11.h) = accept beacons
+            # from any BSS. The vendor driver's last scan block clears it again (end of scan).
+            s.call(42, xdr.u32(0x00100000, 0x00100000))
         cur['ch'] = ch
         print(f'tuned to channel {ch}' + (f' (block divergences: {diffs})' if diffs else ''))
         time.sleep(a.seconds)
@@ -178,6 +189,10 @@ def main(argv=None):
             p.add_argument('--chan', type=int, action='append', required=True)
             p.add_argument('--seconds', type=float, default=15)
             p.add_argument('--out')
+            p.add_argument('--no-bcns-promisc', action='store_true',
+                           help='do not force beacon-promiscuous mode after each retune')
+            p.add_argument('--no-up', action='store_true',
+                           help='skip the init replay (dongle already up from a previous `up`)')
     for name in ('sync', 'call'):
         p = sub.add_parser(name)
         p.add_argument('id', type=int)

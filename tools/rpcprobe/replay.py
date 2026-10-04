@@ -25,7 +25,12 @@ DEFAULT_VOLATILE = {
     67, 101,        # tx power readings
     86,             # PHY noise average
     (1, 0x65a),     # REG_READ 0x65a: free-running counter in the capture itself
+    (110, 3),       # DOIOVARS iovar 3 (get, 4 B): low bits differ run-to-run, value not reused [I]
 }
+
+# Replies whose tail is uninitialised firmware memory: compare only the first N bytes.
+# 75 REVINFO_GET: words 23..30 differ run-to-run by scattered bit flips (SRAM noise) [C 2026-10-04].
+DEFAULT_PREFIX = {75: 92}
 
 
 def load(path):
@@ -116,6 +121,10 @@ class Replay:
         expect = self._subst(bytes.fromhex(e.get('expect', '')))
         name = rpcids.name(e['id']) or '?'
         if reply == expect:
+            self.stats['match'] += 1
+            return True
+        n = DEFAULT_PREFIX.get(e['id'])
+        if n and len(reply) == len(expect) and reply[:n] == expect[:n]:
             self.stats['match'] += 1
             return True
         if len(reply) != len(expect):
