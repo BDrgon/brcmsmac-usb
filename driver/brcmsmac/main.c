@@ -1892,9 +1892,21 @@ static void brcms_c_edcf_setparams(struct brcms_c_info *wlc, bool suspend)
 	}; /* ucode needs these parameters during its initialization */
 	const struct edcf_acparam *edcf_acp = &default_edcf_acparams[0];
 
+	/*
+	 * brcmsmac_usb: the table's ACI field is the 802.11 ACI (BE 0, BK 1, VI 2, VO 3), but
+	 * brcms_c_wme_setparams() takes a mac80211 queue (VO 0, VI 1, BE 2, BK 3). Upstream passes
+	 * the ACI straight through, so the defaults landed in the wrong M_EDCF_QINFO slots (VO's
+	 * on the BK FIFO, and so on; BK even got VI's aifs+1). Map it, as the staging driver's
+	 * wlc_edcf_setparams() did with its own AC numbering. The result now equals the vendor
+	 * driver's per-AC block (docs/protocol.md §6).
+	 */
+	static const u8 aci2queue[] = {
+		IEEE80211_AC_BE, IEEE80211_AC_BK, IEEE80211_AC_VI, IEEE80211_AC_VO
+	};
+
 	for (i_ac = 0; i_ac < IEEE80211_NUM_ACS; i_ac++, edcf_acp++) {
 		/* find out which ac this set of params applies to */
-		aci = (edcf_acp->ACI & EDCF_ACI_MASK) >> EDCF_ACI_SHIFT;
+		aci = aci2queue[(edcf_acp->ACI & EDCF_ACI_MASK) >> EDCF_ACI_SHIFT];
 
 		/* fill in shm ac params struct */
 		txq_pars.txop = edcf_acp->TXOP;
