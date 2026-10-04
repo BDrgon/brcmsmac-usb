@@ -61,7 +61,7 @@ static int bmu_trace_show(struct seq_file *s, void *unused)
 	unsigned long flags;
 	unsigned int head, i, n;
 
-	ents = kmalloc_array(BMU_TRACE_LEN, sizeof(*ents), GFP_KERNEL);
+	ents = kvmalloc_array(BMU_TRACE_LEN, sizeof(*ents), GFP_KERNEL);
 	if (!ents)
 		return -ENOMEM;
 	spin_lock_irqsave(&d->trace_lock, flags);
@@ -73,11 +73,15 @@ static int bmu_trace_show(struct seq_file *s, void *unused)
 	for (i = head - n; i != head; i++) {
 		struct bmu_trace_ent *e = &ents[i % BMU_TRACE_LEN];
 
-		seq_printf(s, "%lld %c k%u s%04x id%-3u len %-4u %*phN\n",
-			   ktime_to_us(e->t), e->dir, e->kind, e->seq, e->id, e->len,
-			   (int)min_t(u32, e->len, BMU_TRACE_BYTES), e->bytes);
+		u32 j, m = min_t(u32, e->len, BMU_TRACE_BYTES);
+
+		seq_printf(s, "%lld %c k%u s%04x id%-3u len %-4u ",
+			   ktime_to_us(e->t), e->dir, e->kind, e->seq, e->id, e->len);
+		for (j = 0; j < m; j += 64)	/* %*ph prints at most 64 bytes */
+			seq_printf(s, "%*phN", (int)min_t(u32, 64, m - j), e->bytes + j);
+		seq_putc(s, '\n');
 	}
-	kfree(ents);
+	kvfree(ents);
 	return 0;
 }
 DEFINE_SHOW_ATTRIBUTE(bmu_trace);

@@ -78,8 +78,8 @@
 
 #define BMU_SYNC_TIMEOUT_MS	2000
 #define BMU_MGMT_TIMEOUT_MS	1000
-#define BMU_TRACE_LEN		256
-#define BMU_TRACE_BYTES		32
+#define BMU_TRACE_LEN		2048
+#define BMU_TRACE_BYTES		256
 
 struct bmu_fw {
 	const char *version;	/* "5.100.148.5" */

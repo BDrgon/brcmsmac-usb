@@ -499,19 +499,19 @@ static int bmu_probe(struct usb_interface *intf, const struct usb_device_id *id)
 	struct usb_device *udev = interface_to_usbdev(intf);
 	struct bmu_dev *d;
 
-	d = kzalloc(sizeof(*d), GFP_KERNEL);
+	d = kvzalloc(sizeof(*d), GFP_KERNEL);	/* ~120 KB with the trace ring */
 	if (!d)
 		return -ENOMEM;
 	d->ctrl_buf = kmalloc(BMU_RETURN_WLEN, GFP_KERNEL);
 	if (!d->ctrl_buf) {
-		kfree(d);
+		kvfree(d);
 		return -ENOMEM;
 	}
 	d->fw = bmu_find_fw(fw_version);
 	if (!d->fw) {
 		dev_err(&intf->dev, "unknown firmware version '%s'\n", fw_version);
 		kfree(d->ctrl_buf);
-		kfree(d);
+		kvfree(d);
 		return -EINVAL;
 	}
 	d->udev = usb_get_dev(udev);
@@ -571,7 +571,7 @@ static void bmu_disconnect(struct usb_interface *intf)
 	bmu_rx_free(d);
 	usb_put_dev(d->udev);
 	kfree(d->ctrl_buf);
-	kfree(d);
+	kvfree(d);
 	dev_info(&intf->dev, "disconnected\n");
 }
 

@@ -40,7 +40,7 @@ debugfs (`/sys/kernel/debug/brcmsmac_usb-<intf>/`, root only):
 |---|---|
 | `state` | session state, firmware, chip, MAC, NVRAM head, whether BMAC_INIT was sent |
 | `stats` | message/byte/error counters, async messages per rpc id |
-| `trace` | last 256 messages (`O` out, `I` bulk in, `R` sync reply) with the first 32 bytes |
+| `trace` | last 2048 messages (`O` out, `I` bulk in, `R` sync reply) with the first 256 bytes |
 | `rpc` | `echo "sync 76" > rpc; cat rpc` — raw calls (`sync|call ID [u32 ARGS...]`) |
 | `fault` | `echo hang > fault` — simulate a hung dongle (exercises reset recovery) |
 
