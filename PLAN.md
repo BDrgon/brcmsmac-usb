@@ -15,14 +15,16 @@ found it, and updates the status board below.
 | 1 | Repo & toolchain | ✅ done (chunk 2 deferred to Phase 9, D8) | G1 |
 | 2 | Userspace reference driver (`rpcprobe`) | ✅ done (id 161 still unnamed) | G2a RX ✅, G2b TX ✅ |
 | 3 | Kernel transport module | ✅ done (hard-hang reset untested) | G3 ✅ |
-| 4 | brcmsmac fork + RPC stub layer | ✅ done on x86 (Pi not yet validated) | G4 ✅ (x86) |
-| 5 | RX path + monitor mode | ⏸ not started: dev-box SSH access lost (see chunk log) | G5 |
+| 4 | brcmsmac fork + RPC stub layer | ✅ done on x86; Pi cross-build OK, not run there | G4 ✅ (x86) |
+| 5 | RX path + monitor mode | ⏳ | G5 |
 | 6 | TX path + scan + open association | ⏳ | G6 |
 | 7 | WPA2 + real-network use | ⏳ | G7 |
 | 8 | Robustness & soak | ⏳ | G8 |
 | 9 | Packaging & release | ⏳ | G9 = SPEC §9 |
 
 **Chunk log** (newest first; one line per chunk, with what changed and where the notes are):
+
+- 2026-10-04 · phase 4 follow-ups (branch `phase4`) · SSH access back. **Bug fixed:** `rmmod` with the interface UP made DOWN_PREP/PHY_MUTE_UPD/DOWN_FINISH fail with -ENOENT, because without `soft_unbind` usbcore disables the endpoints before `disconnect()`; now `.soft_unbind = 1`. `tests/hw/cycle.sh` (load → up/down/up → unload while UP) 20/20 and 20/20 again; `IFUP=1 tests/hw/replug.sh 20 1` 20/20 software replugs with the interface UP plus 1/1 fault-injected reset while UP; 0 sync errors/timeouts, 0 rpc failures logged, no oops/WARN/hung task. Slab: kmalloc-* flat; skbuff caches grow ~10 objects/cycle, traced to `gvfsd-metadata` holding an unread NETLINK_KOBJECT_UEVENT socket (3 MB queued; a synthetic uevent grows it by 960 B), i.e. uevent skbs, not the driver. `scripts/build.sh pi driver` builds warning-free (armv6, 156 KB); not loaded on the Pi. `scripts/dev.sh` now multiplexes SSH (rapid reconnects were refused by sshd). Dev box: a runtime-only udev rule in /run keeps our interfaces NM-unmanaged across reloads.
 
 - 2026-10-04 · phase 4.3–4.4 (branch `phase4`) · `driver/brcmsmac/bmac.c` (brcms_b_* over RPC, attach identity: REVINFO/XMTFIFO/NVRAM→ssb_sprom/MAC/PHY_BAND_CHANNELS, WLC_RECV + DOTXSTATUS parsers), `bmac_phy.c` (wlc_phy_* stand-ins), `bmac_dma.c` (per-FIFO pending lists; TX gated by `allow_tx`, default off), `main.c` attach/init/down glue, `mac80211_if.c` USB attach + mutex perimeter + `tx_work`/`dpc_work`. Only ids with captured argument layouts are sent (newly confirmed from the capture dump: 22 `(id, val)`, 23 `(0, PHY_MUTE_ALL)`, 39 `(0xe0, 128, SHM_SEL)` every 30 s; BMAC_MUTE stays a host no-op). Builds warning-free (arm 6.18.53 tree and the x86 box). **G4 passed on x86**, evidence below. Then SSH to the dev box started refusing the (unchanged) key mid-session — host reachable, auth denied — so hardware work stopped there; Phase 5 not started.
 
@@ -164,7 +166,9 @@ Chunks:
   BMAC_INIT, SHM/rate table/EDCF writes, ENABLE_MAC, UP_FINISH, …). Afterwards: 308 sync calls,
   0 timeouts, 0 sync/tx/rx errors; `STATE_GET` still answers (same reply as in the vendor capture);
   WLC_RECV frames already arriving (79), RESET_BMAC_DONE/UPDATE_PHY_MODE as expected. No WARN/oops.
-- Not yet run with this code: unload with the interface up, replug cycles, Pi build/run.
+- Follow-ups (same day): unload with the interface up (bug fixed: `soft_unbind`), 20× load/up/down/
+  unload-while-UP cycles, 20× software replug with the interface UP, Pi cross-build — all pass (chunk log).
+  Not yet: running on the Pi.
 
 ## Phase 5 — RX path + monitor mode
 
