@@ -17,12 +17,14 @@ found it, and updates the status board below.
 | 3 | Kernel transport module | ✅ done (hard-hang reset untested) | G3 ✅ |
 | 4 | brcmsmac fork + RPC stub layer | ✅ done on x86; Pi cross-build OK, not run there | G4 ✅ (x86) |
 | 5 | RX path + monitor mode | ✅ done on x86 | G5 ✅ (x86) |
-| 6 | TX path + scan + open association | 🚧 in progress (branch `phase6`); TX works on fresh firmware; dongle hung again, replug needed | G6 ❌ not passed |
+| 6 | TX path + scan + open association | 🚧 in progress (branch `phase6`); TX works on fresh firmware; EXPTIME not reproduced by reload/assoc/down-up/0x7c/monitor/long idle | G6 ❌ not passed (5-min ping not run) |
 | 7 | WPA2 + real-network use | ⏳ (blocked on G6) | G7 |
 | 8 | Robustness & soak | ⏳ | G8 |
 | 9 | Packaging & release | ⏳ | G9 = SPEC §9 |
 
 **Chunk log** (newest first; one line per chunk, with what changed and where the notes are):
+
+- 2026-10-04 · phase 6 cont. 2 (branch `phase6`, partial, stopped) · After the replug, HEAD `98964a8` (EDCF slot fix + DOWN_FINISH guard) on fresh firmware: active scan 11 probes, 0 suppressed. **Guard verified**: interface down → debugfs `state` shows register access refused; raw `sync 45` returns `EPERM`, `tx_msgs`/`sync_calls`/trace unchanged (never sent), dmesg `refusing rpc 45`. EXPTIME reproduction, one variable at a time, raw calls only while UP: **none reproduced it** (details under Phase 6). Experiment (v) (complete vendor-init replay via `rpcprobe rx`, then our driver, which is the Phase-5 pattern that preceded the original failure) and all further dev-box access were **blocked by an automated safety check in the agent tooling**; the session stopped there. G6 not reached (5-minute ping not run). Phase 7 not started.
 
 - 2026-10-04 · phase 6 cont. (branch `phase6`, partial) · After the replug (fresh firmware) the **unchanged** driver transmits fine: 4 active scans over 4 min idle, 44 probes, 0 suppressed; WPA2 association with the HOME AP in netns `bcmtest`, **DHCP ok, 20/20 pings** (91 tx statuses, 0 suppressed). So the EXPTIME failure is state the firmware accumulated during the previous session, not missing init on a fresh dongle; root cause **not found**. Fixed: brcmsmac's init-time EDCF defaults went to the wrong AC slots (ACI vs mac80211 queue numbering; upstream bug), now equal to the vendor's (compile-tested only). Found: SHM 0x7c = `M_AGING_THRSH`, written 800 by the vendor only (protocol.md §9). **Dongle hard-hung again**: a raw debugfs READ_TSF sent while the interface was down (after DOWN_FINISH); port reset failed → **physical replug needed**. The register guard now also covers DOWN_FINISH → BMAC_INIT (recovery.md). No open AP of ours exists (one third-party open BSS seen, not used); TEST hotspot not visible.
 
@@ -242,6 +244,22 @@ correct radiotap channel and signal. Passive `iw scan` works.
   (3) after an association, down/up and scan tests, reading TSF (id 45) only while up. Whichever
   reproduces EXPTIME shows the trigger. Also check whether 0x7c survives BMAC_INIT (write it, then
   down/up, read it back while up).
+- **Reproduction attempts (2026-10-04, fresh firmware, HEAD `98964a8`)**, each followed by active
+  scans on ch 1–11 (11 probes each), all **0 suppressed**:
+  (i) `WRITE_SHM 0x7c = 800` while up, read back 0x320; scans at 0, 40, 130 s: 33/33 sent.
+  (iv) after down/up, 0x7c reads 0 again and READ_TSF ≈ 1–2 s, both after a plain down/up and after
+  a down/up following a WPA2 association (TSF synced to the AP): **neither 0x7c nor the TSF survives
+  down/up** (BMAC_INIT resets both). So candidates (a) and (b) can't carry state across bring-ups.
+  (ii) driver reload (reconnect) idle, reload mid-scan with TX in flight, and reload while
+  associated with a 20 pkt/s ping running: scans at 2, 40, 100 s after each, all clean.
+  (iii) association (HOME, netns, DHCP, 20/20 pings, 0 suppressed) → down/up → scans at 2, 40, 100 s:
+  clean. Monitor session (ch 6, 30 s) → station up → 2 scans: clean. Long uptime: interface up
+  ~14 min with 5 scans at 2.5-min intervals: clean.
+  brcmsmac sets no TX lifetime (no `TXC_LIFETIME`/`TstampLow` use), so EXPTIME must come from the
+  firmware/ucode side (e.g. the medium-wait aging behind `M_AGING_THRSH`).
+  Not yet tested: (v) a complete vendor-init replay (`rpcprobe rx`, as in the Phase 5 oracle run,
+  which preceded the original failure on the same firmware) followed by our driver. The attempt
+  was blocked by the agent tooling, not by the hardware.
 - G6 evidence so far: active scan with TX ✓; association + DHCP + ping via WPA2 (no open test AP
   under our control exists; the phone hotspot was not visible) ✓ for 20 s; the 5-minute ping was
   not reached before the hang. **G6 stays ❌.**

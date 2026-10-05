@@ -76,3 +76,7 @@ physical replug needed. After DOWN_FINISH the firmware has the d11 core in reset
 off, the same state as before BMAC_INIT. The driver's guard (`bmu_guard`) now also refuses
 register/SHM/TSF calls between DOWN_FINISH and the next BMAC_INIT, including raw debugfs calls.
 Rule for experiments: **raw register/SHM/TSF calls only while the interface is up.**
+
+Verified on hardware (2026-10-04, HEAD `98964a8`): with the interface down, a raw `sync 45` through
+debugfs `rpc` returns `EPERM`, the message counters and the trace stay unchanged (nothing reaches
+the dongle), and the kernel logs `refusing rpc 45: d11 core not initialised`.

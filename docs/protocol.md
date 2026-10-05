@@ -393,6 +393,7 @@ call 41 ENABLE_MAC
   driver writes 800 (`0x320`) right before `UP_FINISH` (inside `SUSPEND_MAC … ENABLE_MAC`, next to
   `MHF_SET(3, 0x20, 0x20)`); neither brcmsmac nor the staging driver writes it, and it reads 0 under
   our driver on freshly booted firmware, where transmission works. Its unit and its role in the
-  `EXPTIME` suppressions seen in phase 6 are unknown.
+  `EXPTIME` suppressions seen in phase 6 are unknown. Writing 800 while up does not disturb TX, and the value (like the TSF) is back to 0 after
+  the next down/up, i.e. BMAC_INIT resets it [C, 2026-10-04].
 - What briefly takes the radio off-channel (§7.2, foreign-channel frames); id 140's arguments
   `(11, 0, 1, 0)` in the vendor init.
