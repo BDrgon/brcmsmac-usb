@@ -22,7 +22,18 @@ found it, and updates the status board below.
 | 8 | Robustness & soak | ⏳ | G8 |
 | 9 | Packaging & release | ⏳ | G9 = SPEC §9 |
 
+> **Project paused 2026-10-04** by the owner, at Phase 6 (G6 open). Resume notes, open issues and a
+> repository map are in [README.md](README.md). Test procedures and safety rules are in
+> [docs/testing.md](docs/testing.md). Licensing and clean-room notes are in
+> [docs/legal.md](docs/legal.md).
+
 **Chunk log** (newest first; one line per chunk, with what changed and where the notes are):
+
+- 2026-10-04 · pause + docs (branch `phase6`) · Project paused by the owner. Added README.md (status,
+  what works, open issues, repo map, resume steps), docs/testing.md (safety rules, module params,
+  debugfs, hardware scripts, Windows USBPcap capture procedure incl. `--capture-from-new-devices`),
+  docs/legal.md (licensing table, firmware policy, interoperability background, clean-room history).
+  No code changes. Dev-host leftovers to clean up when convenient are listed in README.md.
 
 - 2026-10-04 · phase 6 cont. 2 (branch `phase6`, partial, stopped) · After the replug, HEAD `98964a8` (EDCF slot fix + DOWN_FINISH guard) on fresh firmware: active scan 11 probes, 0 suppressed. **Guard verified**: interface down → debugfs `state` shows register access refused; raw `sync 45` returns `EPERM`, `tx_msgs`/`sync_calls`/trace unchanged (never sent), dmesg `refusing rpc 45`. EXPTIME reproduction, one variable at a time, raw calls only while UP: **none reproduced it** (details under Phase 6). Experiment (v) (complete vendor-init replay via `rpcprobe rx`, then our driver, which is the Phase-5 pattern that preceded the original failure) and all further dev-box access were **blocked by an automated safety check in the agent tooling**; the session stopped there. G6 not reached (5-minute ping not run). Phase 7 not started.
 
